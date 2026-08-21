@@ -1,0 +1,15 @@
+# Datasets (large, downloaded separately per spec.md)
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
