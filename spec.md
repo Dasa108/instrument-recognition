@@ -6,14 +6,15 @@ the reasoning behind each choice below.
 spectrograms → mel scale → timbre → ML bridging). This spec turns that theory into an execution
 plan.
 
-**Progress (updated 2026-08-22): Phase 1 is complete.** Every section below now reflects what was
-actually built, not just planned — the whole pipeline (download → preprocessing → model →
-training → evaluation → **inference on arbitrary audio**) is implemented and has run end-to-end
-multiple times. Best result: **78% test accuracy / 0.76 macro F1**, tied between a pretrained CNN
-(PANNs) and a pretrained transformer (AST) — see Section 5 and Section 9. Want a prediction on
-your own audio file right now? See `INFERENCE.md`. Full numbers, curves, and confusion matrices
-for all 8 training runs + 1 ensemble: `results.md`. Reasoning behind every non-obvious choice made
-along the way: `DECISIONS.md`. Phase 2 (multi-label) has not started.
+**Phase 1: CLOSED (2026-08-22).** Every section below reflects what was actually built, not just
+planned — the whole pipeline (download → preprocessing → model → training → evaluation →
+**inference on arbitrary audio**) is implemented, verified, and has run end-to-end multiple times.
+Best result: **78% test accuracy / 0.76 macro F1**, tied between a pretrained CNN (PANNs) and a
+pretrained transformer (AST) — see Section 5 and Section 9. Want a prediction on your own audio
+file right now? See `INFERENCE.md`. What every file/folder in the repo is for: `REPO_GUIDE.md`.
+Full numbers, curves, and confusion matrices for all 8 training runs + 1 ensemble: `results.md`.
+Reasoning behind every non-obvious choice made along the way: `DECISIONS.md`. **Phase 2
+(multi-label) has not started** — it's the next step if this project continues.
 
 ## 1. Objective
 
@@ -22,8 +23,8 @@ Build a model that identifies which musical instrument(s) are present in an audi
 ## 2. Scope — phased
 
 - **Phase 1 (MVP):** predominant-instrument recognition — one label per 3s clip, single-label
-  classification. **Status: functionally complete.** Best result 78% test accuracy / 0.76 macro
-  F1 (Section 5, Section 9).
+  classification. **Status: CLOSED (2026-08-22).** Best result 78% test accuracy / 0.76 macro F1
+  (Section 5, Section 9).
 - **Phase 2:** multi-label recognition on full songs — predict *all* instruments present, not
   just the dominant one. **Status: not started.** IRMAS's Testing data (2,874 multi-labeled
   clips, downloaded — Section 3) is the natural entry point once this begins.
@@ -180,9 +181,9 @@ instrument-recognition/
 6. ⬜ Phase 2: multi-label pipeline on OpenMIC/Slakh2100. **Not started.** IRMAS Testing data
    (2,874 multi-labeled clips) is already downloaded and ready for this once it begins.
 
-**Phase 1 status: complete.** Every milestone above is done, including a working end-to-end path
-from raw audio to prediction. What remains is genuinely optional polish, not unfinished work:
+**Phase 1: CLOSED (2026-08-22).** Every milestone above is done, including a working end-to-end
+path from raw audio to prediction. What remains is genuinely optional polish, not unfinished work:
 fine-tuning PANNs/AST instead of frozen-backbone-only, AST embedding interpolation instead of
 loop-padding, or ensembling Run 7 + Run 8 the way Run 2 + Run 3 were ensembled in Phase A. None of
-these are blocking — Phase 1 can be considered closed as-is, with Phase 2 (multi-label) as the
-next real step if the project continues.
+these are blocking. Phase 2 (multi-label) is the next real step if the project continues; nothing
+further is planned for Phase 1 itself.

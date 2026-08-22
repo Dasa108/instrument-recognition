@@ -4,8 +4,9 @@
 first, then `notes/THEORY_NOTES.md` and `spec.md` for the full detail, `DECISIONS.md` for the
 reasoning behind non-obvious choices (dataset, framework, etc.) as they get made, `results.md` for
 every training run's actual numbers, `notes/improv_cnn.md` for the menu of model-improvement
-techniques under consideration, and `EXPERIMENTS.md` for where each run's config/checkpoint/
-TensorBoard logs actually live on disk.
+techniques under consideration, `EXPERIMENTS.md` for where each run's config/checkpoint/
+TensorBoard logs actually live on disk, `INFERENCE.md` for how to run the trained model on your
+own audio, and `REPO_GUIDE.md` for what every file/folder in the repo is for.
 
 ## Where things stand
 
@@ -129,13 +130,14 @@ accuracy claim, since Run 7/8 are exactly tied — see `DECISIONS.md`, "Inferenc
 checkpoint" entry. Smoke-tested against all three model types on real IRMAS files, including a
 genuine multi-window (5-window) prediction on a variable-length Testing clip.
 
-**Phase 1 status: complete.** All milestones done (`spec.md` §9), including the inference script —
-that closes the gap between "a checkpoint that scores well on held-out test data" and "a model you
-can actually point at a file and use." Remaining options (fine-tuning instead of frozen-backbone,
-AST embedding interpolation, ensembling Run 7+8) are genuine optional polish, not blockers — see
-`spec.md` §9 for the same framing. Next real step, if the project continues: **Phase 2**
-(multi-label, OpenMIC-2018 / Slakh2100) — IRMAS Testing data (fully downloaded, 2,874 multi-labeled
-clips) becomes relevant there.
+**Phase 1: CLOSED (2026-08-22).** All milestones done (`spec.md` §9), including the inference
+script — that closed the gap between "a checkpoint that scores well on held-out test data" and "a
+model you can actually point at a file and use." Remaining options (fine-tuning instead of
+frozen-backbone, AST embedding interpolation, ensembling Run 7+8) are genuine optional polish, not
+blockers — see `spec.md` §9 for the same framing. Full map of every file/folder in the repo as of
+this closure: `REPO_GUIDE.md`. Next real step, if the project continues: **Phase 2** (multi-label,
+OpenMIC-2018 / Slakh2100) — IRMAS Testing data (fully downloaded, 2,874 multi-labeled clips)
+becomes relevant there.
 
 Note (historical): `nvidia-smi` initially couldn't reach the GPU driver from within a Claude Code
 session (likely a transient sandboxing state) — confirmed the card via `lspci` at the time. It

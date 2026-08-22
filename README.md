@@ -17,6 +17,8 @@ full story, not just the code.
   short behavioral summary of how each run's training actually looked.
 - **`notes/improv_cnn.md`** — the model-improvement menu and how the from-scratch CNN was iterated
   toward, then surpassed by, pretrained embeddings.
+- **`REPO_GUIDE.md`** — what every folder and file in this repo is for, including the gitignored
+  ones (data, checkpoints, logs).
 
 ## Layout
 
@@ -50,7 +52,7 @@ pip install -r requirements.txt
 
 ## Status
 
-Phase 1 (single-label predominant-instrument classification) is functionally complete. Best
+**Phase 1 (single-label predominant-instrument classification) is closed (2026-08-22).** Best
 result: **78% test accuracy / 0.76 macro F1**, tied between a pretrained CNN (PANNs) and a
 pretrained transformer (AST) — see `results.md`. Want a prediction on your own audio right now?
-See `INFERENCE.md`. For what's next, see `HANDOFF.md`.
+See `INFERENCE.md`. Phase 2 (multi-label) has not started — see `HANDOFF.md` for what's next.
