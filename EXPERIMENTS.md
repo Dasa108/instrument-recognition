@@ -1,9 +1,11 @@
 # Experiments Log
 
 **Purpose:** tracks *what was run and where its artifacts live* — config file, model code, saved
-checkpoint, TensorBoard logs — so any run can be found, inspected, or reproduced later. This file
-is the index; it doesn't duplicate the other docs:
-- **Result numbers** (accuracy, F1, confusion matrix): `results.md`.
+checkpoint, TensorBoard logs — so any run can be found, inspected, or reproduced later, plus a
+short *behavioral* summary per run (how training actually looked, not just the final score) so
+the personality of each run is visible at a glance. This file is the index; it doesn't duplicate
+the other docs:
+- **Full numbers** (per-epoch curves, per-class metrics, confusion matrices): `results.md`.
 - **Why each variant was chosen**: `DECISIONS.md` ("Runs 2-4" entry) and `notes/improv_cnn.md`.
 - **Overall project status**: `HANDOFF.md`.
 
@@ -51,6 +53,68 @@ Full comparison table: `results.md`, "Summary — Phases A + B complete".
 Reproduce either: `python -m src.train --config configs/panns.yaml` (auto-downloads the PANNs
 checkpoint to `~/panns_data/` on first run) or `python -m src.train --config configs/ast.yaml`
 (auto-downloads via HuggingFace Hub on first run).
+
+## Model behavior per run
+
+Not just final scores — how each run's training actually *looked*. Full curves/confusion
+matrices for all of this: `results.md`.
+
+**Run 1 (baseline)** — textbook overfitting. Train accuracy climbed smoothly to 93%+, but val
+was erratic throughout (briefly crashed to 17-20% around epochs 3-4) and trended flat-to-worse
+after epoch 15 while train kept climbing — ~42-point train/val gap at the end. "pia" acted as a
+dumping ground for other classes' errors.
+
+**Run 2 (+ weight decay + dropout)** — a different personality entirely: train and val tracked
+each other almost exactly for all 30 epochs, val even nudging *ahead* of train by the end. No
+crashes, no divergence, just a slower, honest climb — fully eliminated Run 1's overfitting
+signature, at the cost of a much higher absolute training loss (the task was deliberately made
+harder).
+
+**Run 3 (+ SpecAugment only)** — best peak accuracy of the individual techniques, but volatile:
+val accuracy swung as wildly as 61%→31% between adjacent epochs late in training. Also developed a
+specific pathology — clarinet recall collapsed to 0.16 (model got extremely conservative, only
+guessing clarinet when very confident). Stronger peak, less predictable.
+
+**Run 4 (Run 2 + Run 3 combined)** — stable like Run 2 (no oscillation, no overfitting) but slow —
+still climbing gradually at epoch 30, never catching up to either individual technique. Looked at
+first like "combining regularizers backfires"; the curve shape (steady, unfinished climb, not a
+peak-and-decline) was the tell it was actually just under-trained.
+
+**Ensemble (Run 2 + Run 3, no retraining)** — simply averaging softmax outputs beat both inputs
+(65% vs. 60%/63%). Confirmed the two models' mistakes were genuinely complementary rather than the
+same mistakes twice — Run 2's steadiness partially rescued some of Run 3's clarinet blind spot.
+
+**Run 5 (Run 4's recipe, 60 epochs instead of 30)** — vindicated the under-training theory
+decisively. Same stable, monotonic climb as Run 4, just given twice the runway — kept climbing
+cleanly the whole time (train/val gap stayed ~1-2 points even at epoch 60) and nearly doubled
+Run 4's final val accuracy. Best-balanced result of Phase A — no single class collapsed.
+
+**Run 6 (focal loss, built on Run 3)** — the most interesting behavior of the batch. It *did* fix
+what it targeted — clarinet recall jumped from 0.16 to 0.63 — but manufactured a new, worse
+problem: organ recall hit a literal 1.00, meaning the model started defaulting to "organ" as a
+catch-all guess whenever uncertain, dragging its precision down to 0.32. First run where early
+stopping actually triggered (val stalled after epoch 13). Net: fixed one failure mode by trading
+it for a bigger one.
+
+**Run 6b (class-weighted, optional control)** — not run (deprioritized in favor of Phase B once
+Run 6 already showed the confusions weren't frequency-driven — see `DECISIONS.md`).
+
+**Run 7 (PANNs, frozen) and Run 8 (AST, frozen)** — behaved almost nothing like the Phase A runs.
+Both hit ~70-73% val accuracy in the *first epoch* — something no from-scratch run got close to
+even after 30-60 epochs — then climbed gently and plateaued smoothly with no oscillation at all.
+Makes sense mechanically: only a small linear head (~22K params) was actually training, a far
+easier optimization problem than tuning a full CNN. AST converged even faster than PANNs
+(plateaued by epoch 8 vs. epoch 14) and had the smoothest curve of any run in the whole project.
+Both landed at 78%/0.76 — tied overall, but not identical under the hood: AST notably better on
+organ and voice, PANNs slightly better on clarinet and trumpet, and AST's single worst weak spot
+was cello↔violin confusion (12 misclassifications, the largest single off-diagonal entry across
+every run in the project).
+
+**Thread running through every single run, regardless of technique:** clarinet↔sax/trumpet,
+cello↔violin, and guitar→piano confusions never fully disappeared — they shrank a lot under
+pretraining (roughly a third the magnitude of the worst from-scratch runs) but never zeroed out,
+suggesting some of these instrument pairs are genuinely acoustically similar, not purely an
+artifact of too little training data.
 
 ## How to reproduce or inspect a run
 
