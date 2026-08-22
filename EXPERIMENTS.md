@@ -41,10 +41,16 @@ cross-entropy, unchanged).
 
 Reproduce the ensemble result: `python -m src.ensemble_evaluate --checkpoints checkpoints/run2_regularization.pt checkpoints/run3_specaugment.pt`.
 
-**Phase A complete (2026-08-22).** Best result: Run 5 (`checkpoints/run5_combined_extended.pt`) —
-highest macro F1 of any run/ensemble, ties the ensemble's accuracy, most balanced across classes.
-Full comparison table: `results.md`, "Summary — Phase A complete". Next: Phase B (PANNs/AST
-pretrained embeddings) — see `notes/improv_cnn.md`.
+| 7 — PANNs (frozen) | AudioSet-pretrained CNN14 backbone, frozen, fresh linear head | `configs/panns.yaml` | `checkpoints/run7_panns_frozen.pt` | `runs/run7_panns_frozen/` | Done — see `results.md` Run 7. **Best result (tied with Run 8).** |
+| 8 — AST (frozen) | AudioSet-pretrained Audio Spectrogram Transformer, frozen, fresh head | `configs/ast.yaml` | `checkpoints/run8_ast_frozen.pt` | `runs/run8_ast_frozen/` | Done — see `results.md` Run 8. **Best result (tied with Run 7).** |
+
+**Phases A + B both complete (2026-08-22).** Best results: Run 7 (PANNs) and Run 8 (AST), tied at
+78% accuracy / 0.76 macro F1 — both ~13 points ahead of the best from-scratch result (Run 5, 65%).
+Full comparison table: `results.md`, "Summary — Phases A + B complete".
+
+Reproduce either: `python -m src.train --config configs/panns.yaml` (auto-downloads the PANNs
+checkpoint to `~/panns_data/` on first run) or `python -m src.train --config configs/ast.yaml`
+(auto-downloads via HuggingFace Hub on first run).
 
 ## How to reproduce or inspect a run
 

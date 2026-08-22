@@ -22,9 +22,9 @@ from sklearn.metrics import confusion_matrix
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from src.datasets.irmas_dataset import IRMAS_CLASSES, IRMASDataset
+from src.datasets.irmas_dataset import IRMAS_CLASSES
 from src.losses import FocalLoss, compute_class_weights
-from src.models.cnn import BaselineCNN
+from src.models.registry import build_collate_fn, build_dataset, build_model
 from src.preprocessing.audio_to_logmel import spec_augment
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -52,7 +52,8 @@ def confusion_matrix_image(y_true, y_pred, class_names) -> torch.Tensor:
     return torch.from_numpy(img).permute(2, 0, 1)  # (C, H, W)
 
 
-def run_epoch(model, loader, criterion, optimizer, scaler, device, train: bool, aug_cfg=None):
+def run_epoch(model, loader, criterion, optimizer, scaler, device, train: bool, aug_cfg=None,
+              use_amp: bool = True):
     model.train(train)
     total_loss, correct, total = 0.0, 0, 0
     all_preds, all_labels = [], []
@@ -70,7 +71,13 @@ def run_epoch(model, loader, criterion, optimizer, scaler, device, train: bool, 
             )
 
         with torch.set_grad_enabled(train):
-            with torch.autocast(device_type=device.type, enabled=(scaler is not None)):
+            # Bug fix (found via Run 7 smoke test): `enabled=(scaler is not None)` was always
+            # True since scaler is unconditionally constructed (only its own internal enabled
+            # flag controlled loss *scaling*, not whether autocast ran at all) — mixed_precision:
+            # false in a config never actually disabled autocast. Had zero effect on Runs 1-6
+            # (all set mixed_precision: true anyway); surfaced once configs/panns.yaml needed
+            # fp32 for real (PANNs' internal STFT frontend produces NaN under fp16 autocast).
+            with torch.autocast(device_type=device.type, enabled=use_amp):
                 logits = model(x)
                 loss = criterion(logits, y)
 
@@ -99,22 +106,30 @@ def main(config_path: str = "configs/base.yaml") -> None:
         cfg = yaml.safe_load(f)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"device: {device}")
+    print(f"device: {device}  model: {cfg['model']['name']}")
 
-    train_ds = IRMASDataset(split="train")
-    val_ds = IRMASDataset(split="val")
+    aug_cfg = cfg.get("augmentation", {})
+    if aug_cfg.get("specaugment") and cfg["model"]["name"] != "baseline_cnn":
+        # spec_augment() expects (B, 1, n_mels, n_frames) log-mel input — PANNs/AST consume raw
+        # waveform instead, so this would silently no-op (or crash) rather than do anything
+        # meaningful. Fail loudly instead of masking a config mistake.
+        raise ValueError(
+            f"augmentation.specaugment is only valid for model.name: baseline_cnn "
+            f"(log-mel input), got model.name: {cfg['model']['name']!r}"
+        )
+
+    train_ds = build_dataset(cfg, "train")
+    val_ds = build_dataset(cfg, "val")
     print(f"train: {len(train_ds)} clips, val: {len(val_ds)} clips")
 
     batch_size = cfg["train"]["batch_size"]
+    collate_fn = build_collate_fn(cfg)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                               num_workers=4, pin_memory=True)
+                               num_workers=4, pin_memory=True, collate_fn=collate_fn)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
-                             num_workers=4, pin_memory=True)
+                             num_workers=4, pin_memory=True, collate_fn=collate_fn)
 
-    model = BaselineCNN(
-        num_classes=cfg["model"]["num_classes"],
-        dropout=cfg["model"].get("dropout", 0.0),
-    ).to(device)
+    model = build_model(cfg, device)
 
     # Loss dispatch — see src/losses.py and DECISIONS.md "Loss: focal over class-weighted" entry.
     # Absent `loss:` block -> today's plain cross-entropy, unchanged (base/reg/specaug/combined
@@ -135,15 +150,18 @@ def main(config_path: str = "configs/base.yaml") -> None:
     else:
         raise ValueError(f"unknown loss.type: {loss_type!r}")
 
+    # filter(requires_grad) matters for Phase B's frozen-backbone models (PANNs/AST) — without it
+    # Adam still allocates optimizer state for frozen params it will never update. No effect on
+    # BaselineCNN (all params trainable there already).
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.Adam(
-        model.parameters(), lr=cfg["train"]["lr"],
+        trainable_params, lr=cfg["train"]["lr"],
         weight_decay=cfg["train"].get("weight_decay", 0.0),
     )
 
     use_amp = cfg["train"]["mixed_precision"] and device.type == "cuda"
     scaler = torch.amp.GradScaler(enabled=use_amp)
 
-    aug_cfg = cfg.get("augmentation", {})
     patience = cfg["train"].get("early_stopping_patience")
 
     run_name = cfg["logging"].get("run_name") or (
@@ -153,10 +171,13 @@ def main(config_path: str = "configs/base.yaml") -> None:
     writer = SummaryWriter(log_dir=str(log_dir))
     print(f"run: {run_name}  tensorboard logs: {log_dir}")
 
-    # Log a batch of input spectrograms once, for a visual sanity check in TensorBoard.
-    sample_x, _ = next(iter(train_loader))
-    normed = (sample_x - sample_x.min()) / (sample_x.max() - sample_x.min() + 1e-8)
-    writer.add_images("inputs/sample_batch", normed[:16], 0)
+    # Log a batch of input spectrograms once, for a visual sanity check in TensorBoard — only
+    # meaningful for log-mel input (baseline_cnn); PANNs/AST get raw waveform / pre-extracted
+    # features that aren't a sensible image.
+    if cfg["model"]["name"] == "baseline_cnn":
+        sample_x, _ = next(iter(train_loader))
+        normed = (sample_x - sample_x.min()) / (sample_x.max() - sample_x.min() + 1e-8)
+        writer.add_images("inputs/sample_batch", normed[:16], 0)
 
     ckpt_dir = REPO_ROOT / "checkpoints"
     ckpt_dir.mkdir(exist_ok=True)
@@ -167,10 +188,11 @@ def main(config_path: str = "configs/base.yaml") -> None:
     epochs = cfg["train"]["epochs"]
     for epoch in range(1, epochs + 1):
         train_loss, train_acc, _, _ = run_epoch(
-            model, train_loader, criterion, optimizer, scaler, device, train=True, aug_cfg=aug_cfg
+            model, train_loader, criterion, optimizer, scaler, device, train=True,
+            aug_cfg=aug_cfg, use_amp=use_amp
         )
         val_loss, val_acc, val_labels, val_preds = run_epoch(
-            model, val_loader, criterion, optimizer, scaler, device, train=False
+            model, val_loader, criterion, optimizer, scaler, device, train=False, use_amp=use_amp
         )
 
         writer.add_scalar("loss/train", train_loss, epoch)

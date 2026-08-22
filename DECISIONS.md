@@ -12,6 +12,120 @@ New entries go at the top (most recent first).
 
 ---
 
+## Bug fix: `mixed_precision: false` never actually disabled autocast
+
+**What happened:** `run_epoch`'s autocast context used `enabled=(scaler is not None)` — but
+`scaler` (a `torch.amp.GradScaler`) is *always* constructed regardless of the `mixed_precision`
+config flag; only its own internal `enabled` state (correctly derived from the flag) controlled
+whether it *scaled* gradients. The flag never actually gated whether `torch.autocast` itself ran.
+Found via the Run 7 (PANNs) smoke test: `configs/panns.yaml` set `mixed_precision: false`
+specifically because Cnn14's internal STFT frontend produces NaN logits under fp16 autocast
+(verified directly — fp32 forward pass: clean logits; fp16 autocast forward pass: all-NaN), but
+training still produced NaN loss from epoch 1 even with the flag set. Root-caused with a minimal
+reproduction (manual forward pass, bypassing the training loop) before concluding it wasn't a
+PANNs-specific numerical issue.
+
+**Impact on prior results: none.** Every config through Run 6 (`base`/`reg`/`specaug`/`combined`/
+`combined_extended`/`focal`/`class_weighted`) sets `mixed_precision: true` — the bug only matters
+when a config wants it *off*, which `configs/panns.yaml` is the first to do. Runs 1-6 all got the
+autocast behavior they intended either way; no results need revisiting.
+
+**Fix:** `run_epoch` takes an explicit `use_amp: bool` parameter now, threaded from `main()`'s
+already-correct `use_amp = cfg["train"]["mixed_precision"] and device.type == "cuda"` computation,
+instead of inferring (incorrectly) from the scaler object's mere existence.
+
+**Status:** Fixed and verified (2026-08-22) — PANNs smoke test went from all-NaN to a clean,
+sane training curve after the fix.
+
+---
+
+## AST input-length mismatch: loop-pad, not embedding interpolation (MVP)
+
+**Decision:** Loop-pad each 3s IRMAS clip to 11s before AST's own feature extraction, rather than
+interpolating the pretrained positional-embedding grid down to ~300 frames.
+
+**Context:** `MIT/ast-finetuned-audioset-10-10-0.4593`'s pretrained positional embeddings are
+sized for 1024 time frames (~10.24s, its AudioSet pretraining clip length) — verified directly
+against the loaded config (`num_mel_bins=128`, `max_length=1024`, matches this project's own
+16kHz/128-mel choices on everything except clip length). This project's clips are ~301 frames
+(3s). Also verified HF's `ASTFeatureExtractor`'s actual default behavior for short input
+(reading `_extract_fbank_features`'s source, not assuming): it zero-pads the *computed fbank* to
+1024 frames — i.e. ~70% of a naively-fed 3s clip's padded input would be silence, a real
+distribution mismatch from AudioSet's real 10s clips.
+
+**Alternatives considered:**
+- **Interpolate the position-embedding grid** to ~300 frames (analogous to ViT/DeiT resolution
+  interpolation) — more correct (no wasted computation on repeated audio) and more efficient, but
+  more implementation risk (custom tensor surgery on the checkpoint's positional embeddings).
+  Held as a documented follow-up, not attempted — only worth it if the MVP result is promising but
+  clearly bottlenecked by the padding waste.
+- **Concatenate multiple same-song clips** to reach ~10s — rejected: breaks the single-label-per-
+  clip assumption underpinning `IRMASDataset`/the song-grouped split.
+- **Leave it to the feature extractor's own zero-padding** (do nothing) — technically works
+  (verified it doesn't crash), but feeds ~70% silence, a worse distribution match than repeated
+  real signal.
+
+**Why this one:** simplest, lowest implementation risk, keeps pretrained position embeddings
+untouched, and replaces silence with real (if repeated) signal — matches this project's established
+preference for the proven-default-first approach before custom tensor surgery.
+
+**Trade-offs / risks accepted:** ~70% of the padded input is a repeated/artificial seam, not
+real audio diversity — likely leaves some accuracy on the table vs. embedding interpolation.
+
+**Outcome:** 78% test accuracy, macro F1 0.76 (best epoch 8 of 30, early-stopped — the fastest,
+smoothest convergence of any run in the project) — effectively tied with PANNs (Run 7), both ~13
+points ahead of the best from-scratch result. The loop-padding waste apparently wasn't a binding
+constraint — embedding interpolation (the alternative considered above) was not pursued given this
+result already matches the pretrained-CNN alternative. Full breakdown: `results.md`, Run 8.
+
+**Status:** Done (2026-08-22).
+
+---
+
+## PANNs input pipeline: raw waveform, own download, not autocast-safe
+
+**Decision:** `PANNsClassifier` uses `panns_inference`'s `Cnn14` directly (not its high-level
+`AudioTagging` wrapper), fed raw 32kHz waveform via a new `IRMASWaveformDataset`, with checkpoint
+download reusing this project's own `requests`-based `download_file()` (from `download_irmas.py`)
+instead of the package's internal `os.system('wget ...')` call.
+
+**Context:** Verified directly against the installed package (not assumed): `Cnn14.forward`
+expects raw waveform `(batch, num_samples)` and computes its own internal log-mel (32kHz, 64 mel
+bins, hop 320) — this project's existing `audio_to_logmel.py` output (16kHz, 128 bins) would be
+the wrong representation entirely, not just a slightly different one. Also verified
+`panns_inference.AudioTagging.__init__`'s checkpoint-download logic: a bare `os.system('wget -O
+...')` call with no return-code check — a silent-failure risk (if `wget` is missing or the
+download fails, training would proceed with an incomplete/missing checkpoint file and only fail
+later, confusingly, at `torch.load`).
+
+**Alternatives considered:**
+- **Use `AudioTagging`'s wrapper directly** — simpler call site, but pulls in `DataParallel`
+  wrapping and its own checkpoint-download fragility; also less composable into a normal
+  training loop (its `forward` isn't designed to be called mid-`nn.Module`).
+- **Vendor a minimal `Cnn14` definition**, loading only the raw state_dict — considered as a
+  fallback if `panns-inference`/`torchlibrosa` had installation friction against this project's
+  `numpy==2.5.2`. Not needed — verified `pip install panns-inference transformers` resolves and
+  installs cleanly against the pinned versions, dry-run first before committing to the real
+  install.
+
+**Why this one:** `Cnn14` used directly composes cleanly as a backbone inside a normal
+`nn.Module`/training loop (matches how `BaselineCNN`/`ASTClassifier` are used); reusing this
+project's own download helper keeps checkpoint-fetching consistent (streamed, progress bar) and
+avoids a silent-failure path the dependency itself has.
+
+**Trade-offs / risks accepted:** Cnn14's internal STFT frontend is numerically unstable under fp16
+autocast (produces NaN — see "Bug fix: mixed_precision: false" entry above) — `configs/panns.yaml`
+runs in fp32 (`mixed_precision: false`), which is fine since the backbone is frozen (no backward
+pass through it) so the fp32 compute cost is minor.
+
+**Outcome:** 78% test accuracy, macro F1 0.76 (best epoch 14 of 30, early-stopped) — ~13 points
+ahead of the best from-scratch result (Run 5, 65%). Effectively tied with AST (Run 8). Full
+breakdown: `results.md`, Run 7.
+
+**Status:** Done (2026-08-22).
+
+---
+
 ## Loss: focal over class-weighted (Run 6)
 
 **Decision:** Run 6 uses focal loss (`gamma=2.0`, no class weighting) as the primary fix for the

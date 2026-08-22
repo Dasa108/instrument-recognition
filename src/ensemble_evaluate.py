@@ -13,17 +13,18 @@ import argparse
 from pathlib import Path
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import classification_report, confusion_matrix
 from torch.utils.data import DataLoader
 
-from src.datasets.irmas_dataset import IRMAS_CLASSES, IRMASDataset
-from src.models.cnn import BaselineCNN
+from src.datasets.irmas_dataset import IRMAS_CLASSES
+from src.models.registry import build_collate_fn, build_dataset, load_checkpoint
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def ensemble_predict(models: list[BaselineCNN], x: torch.Tensor) -> torch.Tensor:
+def ensemble_predict(models: list[nn.Module], x: torch.Tensor) -> torch.Tensor:
     """Mean softmax probability across models for one batch. Returns (B, num_classes).
 
     Equal-weight averaging — the simplest thing that tests the hypothesis (complementary vs.
@@ -37,13 +38,22 @@ def main(checkpoint_paths: list[str]) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     models, ckpts = [], []
     for p in checkpoint_paths:
-        model, ckpt = BaselineCNN.from_checkpoint(REPO_ROOT / p, device)
+        model, ckpt = load_checkpoint(REPO_ROOT / p, device)
         models.append(model)
         ckpts.append(ckpt)
         print(f"loaded {p}: epoch {ckpt['epoch']} val acc {ckpt['val_acc']:.4f}")
 
-    test_ds = IRMASDataset(split="test")
-    test_loader = DataLoader(test_ds, batch_size=64, shuffle=False, num_workers=4)
+    model_names = {ckpt["config"]["model"]["name"] for ckpt in ckpts}
+    if len(model_names) > 1:
+        raise ValueError(
+            f"can't ensemble checkpoints with different model.name (incompatible input formats): "
+            f"{model_names}"
+        )
+    cfg = ckpts[0]["config"]
+
+    test_ds = build_dataset(cfg, "test")
+    test_loader = DataLoader(test_ds, batch_size=64, shuffle=False, num_workers=4,
+                              collate_fn=build_collate_fn(cfg))
     print(f"test: {len(test_ds)} clips, ensembling {len(models)} models")
 
     all_preds, all_labels = [], []

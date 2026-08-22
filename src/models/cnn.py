@@ -12,8 +12,6 @@ still works if window length/hop change later.
 see notes/improv_cnn.md, section 1. 0.0 (default) reproduces Run 1's architecture exactly.
 """
 
-from pathlib import Path
-
 import torch
 import torch.nn as nn
 
@@ -58,20 +56,3 @@ class BaselineCNN(nn.Module):
         x = self.features(x)
         x = self.pool(x)
         return self.head(x)  # logits — CrossEntropyLoss applies softmax internally (Phase 1)
-
-    @classmethod
-    def from_checkpoint(cls, path: str | Path, device: torch.device) -> tuple["BaselineCNN", dict]:
-        """Reconstruct + load weights from a checkpoint saved by train.py.
-
-        Dedupes the reconstruction logic that used to live inline in evaluate.py — added when a
-        3rd caller (src/ensemble_evaluate.py) needed the same logic. Returns (model.eval(), ckpt)
-        so callers can also read ckpt["epoch"]/ckpt["val_acc"]/ckpt["config"].
-        """
-        ckpt = torch.load(path, map_location=device)
-        model = cls(
-            num_classes=ckpt["config"]["model"]["num_classes"],
-            dropout=ckpt["config"]["model"].get("dropout", 0.0),
-        ).to(device)
-        model.load_state_dict(ckpt["model_state_dict"])
-        model.eval()
-        return model, ckpt

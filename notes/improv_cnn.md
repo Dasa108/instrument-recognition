@@ -239,22 +239,27 @@ Recap (see `results.md`/`DECISIONS.md` for full numbers):
 2. **Rerun combined recipe with more epochs** (Run 5) — worked decisively, 65%/0.64, best result.
 3. **Focal loss** (Run 6) — mixed/net-negative, fixed clarinet but caused a worse organ collapse.
 
-## Phase B — pretrained embeddings (next)
+## Phase B — pretrained embeddings, done (2026-08-22)
 
-Two options, both being tried and compared directly (not just one chosen):
+Both tried, both frozen-backbone (only a small new head trained):
 
-- **PANNs (CNN14, AudioSet-pretrained)** — closer to the current architecture family, lighter/
-  faster to fine-tune. Real integration note: expects raw waveform at 32kHz with its own internal
-  log-mel (64 bins) — this project's existing `audio_to_logmel.py` output (128 bins, 16kHz) isn't
-  compatible input, needs a parallel raw-waveform data path.
-- **AST (Audio Spectrogram Transformer, AudioSet-pretrained)** — the literal "pretrained
-  transformer" answer. Better input match than PANNs (16kHz, 128 mel bins — same as this project
-  already), but its pretrained positional embeddings are sized for 10s clips (1024 frames) vs. this
-  project's 3s clips (~300 frames) — a real shape mismatch, handled first via loop-padding (MVP,
-  keeps pretrained embeddings untouched) rather than embedding interpolation (more correct, more
-  implementation risk, held as a follow-up).
+- **PANNs (CNN14, AudioSet-pretrained)** — 78% test accuracy, macro F1 0.76. Raw 32kHz waveform
+  input (its own internal log-mel, 64 bins — incompatible with this project's usual 128-bin/16kHz
+  pipeline, needed a parallel raw-waveform data path). Hit and fixed a real bug on the way: its
+  internal STFT frontend produces NaN under fp16 autocast, which also surfaced a pre-existing bug
+  where `mixed_precision: false` never actually disabled autocast — see `DECISIONS.md`.
+- **AST (Audio Spectrogram Transformer, AudioSet-pretrained)** — 78% test accuracy, macro F1 0.76.
+  The literal "pretrained transformer" answer to the question that started this. Input-length
+  mismatch (pretrained for 10s clips, ours are 3s) handled via loop-padding to ~11s before feature
+  extraction — worked cleanly, no embedding-interpolation follow-up needed.
 
-Both frozen-backbone first (train only a small new classifier head — lower risk of re-introducing
-overfitting on this same small dataset, much cheaper on the 6GB RTX 3050), full fine-tuning only as
-a follow-up if frozen underperforms. Both evaluated identically to Runs 1-6 (same held-out test
-split, same metrics) so results land in `results.md`'s existing comparison table directly.
+**Result: both tied, ~13 points ahead of the best from-scratch attempt (Run 5, 65%).** Neither
+architecture family won — pretraining is what mattered, exactly as predicted above before either
+was run. Full curves/confusion matrices/verdicts: `results.md`, Runs 7-8.
+
+**Where this leaves the original question:** the from-scratch CNN's ~65% ceiling was a genuine
+data-scarcity limit (~5,300 clips isn't much to learn instrument timbre from scratch), not a
+fixable regularization/architecture problem — Phase A's best efforts (ensembling, more training
+time) closed real gaps but couldn't reach what one epoch of a *pretrained* model's frozen features
+already achieved. "Confidently usable" is a judgment call, but 78% with no class below 0.60 F1 is a
+different tier of result than anything Phase A produced.

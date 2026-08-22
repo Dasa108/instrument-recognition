@@ -17,19 +17,21 @@ import torch
 from sklearn.metrics import classification_report, confusion_matrix
 from torch.utils.data import DataLoader
 
-from src.datasets.irmas_dataset import IRMAS_CLASSES, IRMASDataset
-from src.models.cnn import BaselineCNN
+from src.datasets.irmas_dataset import IRMAS_CLASSES
+from src.models.registry import build_collate_fn, build_dataset, load_checkpoint
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def main(checkpoint_path: str) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, ckpt = BaselineCNN.from_checkpoint(REPO_ROOT / checkpoint_path, device)
+    model, ckpt = load_checkpoint(REPO_ROOT / checkpoint_path, device)
     print(f"loaded checkpoint from epoch {ckpt['epoch']} (val acc {ckpt['val_acc']:.4f})")
 
-    test_ds = IRMASDataset(split="test")
-    test_loader = DataLoader(test_ds, batch_size=64, shuffle=False, num_workers=4)
+    cfg = ckpt["config"]
+    test_ds = build_dataset(cfg, "test")
+    test_loader = DataLoader(test_ds, batch_size=64, shuffle=False, num_workers=4,
+                              collate_fn=build_collate_fn(cfg))
     print(f"test: {len(test_ds)} clips")
 
     all_preds, all_labels = [], []

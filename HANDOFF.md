@@ -82,9 +82,9 @@ silently didn't extract — caught by checking the actual wav count (807 vs. exp
 the script's own "success" output. Fixed (per-archive marker) and re-extracted; all 2,874 files
 now present. See `DECISIONS.md`, "Bug fix: IRMAS Testing extraction marker" entry.
 
-**Six training runs + 1 ensemble, comparing overfitting/confusion fixes (`notes/improv_cnn.md`)
-against Run 1's baseline — full breakdown, curves, confusion matrices in `results.md`; artifact
-locations in `EXPERIMENTS.md`:**
+**Eight training runs + 1 ensemble, comparing overfitting/confusion fixes then pretrained
+embeddings (`notes/improv_cnn.md`) against Run 1's baseline — full breakdown, curves, confusion
+matrices in `results.md`; artifact locations in `EXPERIMENTS.md`:**
 
 | Run | Change | Test acc | Macro F1 |
 |---|---|---:|---:|
@@ -93,42 +93,39 @@ locations in `EXPERIMENTS.md`:**
 | 3 SpecAugment | time/freq masking | 0.63 | 0.60 |
 | 4 combined | Run 2 + Run 3, 30 epochs | 0.55 | 0.53 |
 | Ensemble (2+3) | soft-vote, no retraining | 0.65 | 0.62 |
-| **5 combined, extended** | Run 4's recipe, 60 epochs | **0.65** | **0.64** |
+| 5 combined, extended | Run 4's recipe, 60 epochs | 0.65 | 0.64 |
 | 6 focal + SpecAugment | Run 3's recipe + focal loss | 0.58 | 0.56 |
+| **7 PANNs (frozen)** | AudioSet-pretrained CNN, frozen backbone | **0.78** | **0.76** |
+| **8 AST (frozen)** | AudioSet-pretrained transformer, frozen backbone | **0.78** | **0.76** |
 
-**Best result: Run 5, `checkpoints/run5_combined_extended.pt`.** Highest macro F1 of any
-run/ensemble, ties the ensemble on accuracy, most balanced across classes (no F1 below 0.45).
-**Key finding:** Run 4 and Run 5 are the *same recipe* — doubling the epoch budget alone closed a
-10-point accuracy gap, meaning Run 4's original "combining regularization techniques doesn't help"
-conclusion was a training-budget artifact, not a real interaction effect. Second finding: confusion
-matrices across Runs 1-5 show the same family-structured mix-ups (clarinet↔sax/trumpet,
-cello↔violin, guitar→piano) regardless of regularization approach, including in Run 2 (zero
-overfitting) — a real feature-discriminability limit, not just overfitting. Ensembling and focal
-loss both targeted this: ensembling worked cleanly (best accuracy); focal loss (Run 6) partially
-fixed the clarinet confusion but manufactured a worse new one (organ recall hit 1.00) — net
-negative, not adopted. See `DECISIONS.md` for all of the above with full reasoning.
+**Phase A best: Run 5** (65%/0.64) — doubling Run 4's epoch budget (30→60), same recipe otherwise,
+closed a 10-point accuracy gap, proving Run 4's "combining doesn't help" was a training-budget
+artifact. Ensembling Run 2+3 (65%/0.62) and focal loss (Run 6, mixed — fixed clarinet's collapse
+but caused a worse organ collapse, not adopted) both targeted the family-structured confusion
+pattern (clarinet↔sax/trumpet, cello↔violin, guitar→piano) that persisted across every from-scratch
+run regardless of regularization.
 
-**User asked directly: "should we try a transformer?"** Answer (see `notes/improv_cnn.md`, "Should
-we use a transformer?" section): not from scratch — a transformer would very likely underperform
-the current CNN given only ~5,300 training clips (well-documented in the ViT/AST literature). A
-*pretrained* transformer (AST) could help, but that's the same lever as pretrained CNN embeddings
-(PANNs) — pretraining is what matters, not the architecture family. Both are now planned (Phase B).
+**Phase B best: Run 7 (PANNs) and Run 8 (AST), tied at 78%/0.76 — ~13 points ahead of Phase A's
+best.** Directly answers the user's "should we try a transformer" question: **not from scratch**
+(would underperform the CNN on ~5,300 clips — confirmed, not just predicted, by how much better a
+*pretrained* transformer does) — **yes if pretrained**, and it performs about the same as a
+pretrained CNN once both start from AudioSet features. Conclusion: the from-scratch ~65% ceiling
+was a genuine data-scarcity limit, not a fixable regularization/architecture problem. Real bugs hit
+and fixed along the way: PANNs' internal STFT frontend produces NaN under fp16 autocast, which
+also surfaced a pre-existing bug where `mixed_precision: false` never actually disabled autocast
+(zero impact on Runs 1-6, all of which wanted it on anyway). `cfg["model"]["name"]` — set in every
+config since Run 1 but never read — is now a real dispatch (`src/models/registry.py`), needed once
+a 3rd architecture entered the picture. See `DECISIONS.md` for full reasoning on all of the above.
 
-**Current phase: Phase B (pretrained embeddings) — planned, not yet implemented.**
-Plan approved via plan-mode and saved at
-`/home/sudarshanab/.claude/plans/federated-hopping-naur.md`. Both PANNs (CNN14, AudioSet-pretrained)
-and AST (Audio Spectrogram Transformer, AudioSet-pretrained) will be tried and compared — user's
-explicit choice ("both, compare"), not a single pick. Real integration risks already identified and
-documented in the plan file / `notes/improv_cnn.md`: PANNs needs a raw-waveform data path (32kHz,
-incompatible with the existing log-mel pipeline); AST's pretrained positional embeddings are sized
-for 10s clips vs. this project's 3s clips (MVP: loop-pad; embedding interpolation held as a
-follow-up). Both frozen-backbone first, fine-tuning only if that underperforms. This also requires
-finally wiring up `cfg["model"]["name"]` (set in every config, never read) into a real dispatch —
-see the plan file's "Comparison methodology" section.
+Plan approved via plan-mode, saved at `/home/sudarshanab/.claude/plans/federated-hopping-naur.md`.
 
-Not yet started: Phase 2 (multi-label, OpenMIC-2018 / Slakh2100) — IRMAS Testing data (fully
-downloaded, 2,874 multi-labeled clips) becomes relevant there; deprioritized behind Phase B per the
-user's explicit sequencing choice.
+**Phases A and B are both complete.** Open, not yet decided:
+1. Accept Run 7/8 (78%/0.76, tied) as Phase 1's final result, or push further — untried options
+   include fine-tuning (not just frozen backbone) either pretrained model, AST embedding
+   interpolation instead of loop-padding (`DECISIONS.md`, "AST input-length mismatch" entry), or
+   ensembling Run 7+Run 8 the same way Run 2+3 were ensembled in Phase A.
+2. Phase 2 (multi-label, OpenMIC-2018 / Slakh2100) — IRMAS Testing data (fully downloaded, 2,874
+   multi-labeled clips) becomes relevant here; was deprioritized behind Phase B, now unblocked.
 
 Note (historical): `nvidia-smi` initially couldn't reach the GPU driver from within a Claude Code
 session (likely a transient sandboxing state) — confirmed the card via `lspci` at the time. It

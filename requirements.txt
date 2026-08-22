@@ -18,3 +18,9 @@ matplotlib==3.11.1
 soundfile==0.14.0
 requests==2.34.2
 pillow==12.3.0
+
+# Phase B: pretrained audio embeddings (notes/improv_cnn.md, DECISIONS.md "PANNs input pipeline"
+# and "AST input-length mismatch" entries). torchaudio.pipelines ships no AudioSet-pretrained
+# classification model, so both are separate dependencies.
+panns-inference==0.1.1   # pulls in torchlibrosa==0.1.0
+transformers==5.15.1     # pulls in huggingface_hub, tokenizers, safetensors

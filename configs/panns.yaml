@@ -1,0 +1,35 @@
+# Run 7 (results.md) — PANNs (CNN14), AudioSet-pretrained, frozen backbone + fresh linear head.
+# See notes/improv_cnn.md "Phase B" section, DECISIONS.md "PANNs input pipeline" entry.
+# Frozen first (train only the new head) — lower overfitting risk on this same small dataset,
+# much cheaper on the 6GB RTX 3050 than fine-tuning an ~80M-param backbone. Fine-tuning
+# (freeze_backbone: false) is a follow-up only if this underperforms.
+
+data:
+  dataset: irmas
+  sample_rate: 32000       # PANNs' own pretraining rate — NOT this project's usual 16kHz
+  clip_seconds: 3.0
+
+model:
+  name: panns_cnn14
+  num_classes: 11
+  freeze_backbone: true
+  checkpoint_path: null    # null = auto-download to ~/panns_data/ (see panns_classifier.py)
+
+train:
+  batch_size: 64            # frozen backbone -> no backward pass through it -> fits comfortably
+  epochs: 30
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0
+  mixed_precision: false    # Cnn14 computes its own STFT/log-mel internally as part of the GPU
+                             # forward pass (unlike AST, whose feature extraction runs on CPU
+                             # before autocast) — verified this produces NaN logits under fp16
+                             # autocast (torchlibrosa's STFT is numerically unstable in fp16).
+                             # Backbone is frozen anyway (no backward pass through it), so the
+                             # compute cost of fp32 here is minor.
+  early_stopping_patience: 7
+
+logging:
+  backend: tensorboard
+  log_dir: runs/
+  run_name: run7_panns_frozen

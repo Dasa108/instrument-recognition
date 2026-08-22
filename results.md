@@ -622,3 +622,196 @@ Phase A: **training budget mattered more than which regularization techniques we
 Run 4 and Run 5 are the *same recipe*, and doubling the epoch count alone closed a 10-point
 accuracy gap. Phase B (pretrained embeddings — PANNs, AST) is next; see `notes/improv_cnn.md`.
 
+---
+
+## Run 7 — `run7_panns_frozen`, `configs/panns.yaml`
+
+**Date:** 2026-08-22
+**What it is:** PANNs (CNN14), pretrained on AudioSet (~2M clips), frozen backbone + a fresh
+`Linear(2048, 11)` head trained from scratch. Raw 32kHz waveform input — not this project's usual
+log-mel pipeline (see `DECISIONS.md`, "PANNs input pipeline" entry). Only the head's ~22k
+parameters are trained; the ~80M-param backbone is untouched.
+**Checkpoint:** `checkpoints/run7_panns_frozen.pt` (best epoch 14 of 30 — early stopping
+triggered, patience 7).
+
+**Bug hit and fixed on the way here:** `mixed_precision: false` in this config didn't actually
+disable autocast (a pre-existing bug in `run_epoch` — see `DECISIONS.md`, "Bug fix: mixed_precision:
+false" entry) — PANNs' internal STFT frontend produces NaN logits under fp16 autocast, so this
+config genuinely needs fp32. Caught immediately by the smoke test (NaN loss from epoch 1), fixed
+before the real run below.
+
+### Training curve (selected epochs; full log in `runs/run7_panns_frozen/`)
+
+| Epoch | Train loss | Train acc | Val loss | Val acc |
+|---:|---:|---:|---:|---:|
+| 1 | 1.5159 | 0.6312 | 1.1341 | 0.7054 |
+| 5 | 0.6753 | 0.7896 | 0.8485 | 0.7393 |
+| 10 | 0.5841 | 0.8094 | 0.8082 | 0.7511 |
+| **14** | **0.5422** | **0.8250** | **0.8032** | **0.7688 (best)** |
+| 21 (stop) | 0.4980 | 0.8398 | 0.8012 | 0.7541 |
+
+Smooth, stable, fast convergence — reaches 70% val acc in the *first* epoch (vs. every from-scratch
+run needing 20+ epochs to approach that), then climbs gently before plateauing. No overfitting
+oscillation of the kind seen in Runs 3/6 — makes sense: only ~22k parameters (the head) are
+actually training, a much simpler optimization problem than any from-scratch run.
+
+### Test set (684 clips)
+
+**Overall: accuracy 0.78, macro F1 0.76, weighted F1 0.77** — dramatically ahead of every
+from-scratch result (previous best: Run 5, 0.65/0.64).
+
+| Class | Precision | Recall | F1 | Support |
+|---|---:|---:|---:|---:|
+| cel | 0.69 | 0.61 | 0.65 | 41 |
+| cla | 0.89 | 0.61 | 0.72 | 51 |
+| flu | 0.75 | 0.64 | 0.69 | 47 |
+| gac | 0.84 | 0.92 | 0.88 | 64 |
+| gel | 0.72 | 0.79 | 0.76 | 78 |
+| org | 0.78 | 0.90 | 0.84 | 69 |
+| pia | 0.84 | 0.92 | 0.88 | 74 |
+| sax | 0.57 | 0.67 | 0.61 | 63 |
+| tru | 0.78 | 0.72 | 0.75 | 60 |
+| vio | 0.76 | 0.58 | 0.65 | 59 |
+| voi | 0.92 | 0.97 | 0.94 | 78 |
+| **macro avg** | **0.78** | **0.76** | **0.76** | 684 |
+
+No class below 0.61 F1 — every from-scratch run had at least one class below 0.40. sax remains the
+weakest class (0.61 F1, same pattern as every prior run) but even that is well above any
+from-scratch run's sax result.
+
+### Confusion matrix (rows = true, cols = predicted)
+
+| true \ pred | cel | cla | flu | gac | gel | org | pia | sax | tru | vio | voi |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| cel | 25 | 0 | 1 | 1 | 7 | 0 | 0 | 1 | 0 | 6 | 0 |
+| cla | 0 | 31 | 3 | 0 | 1 | 0 | 2 | 12 | 1 | 1 | 0 |
+| flu | 0 | 0 | 30 | 2 | 1 | 8 | 2 | 3 | 1 | 0 | 0 |
+| gac | 0 | 0 | 0 | 59 | 1 | 0 | 1 | 0 | 0 | 1 | 2 |
+| gel | 0 | 0 | 0 | 7 | 62 | 4 | 0 | 0 | 0 | 2 | 3 |
+| org | 0 | 0 | 0 | 0 | 1 | 62 | 6 | 0 | 0 | 0 | 0 |
+| pia | 1 | 0 | 1 | 0 | 3 | 1 | 68 | 0 | 0 | 0 | 0 |
+| sax | 2 | 2 | 0 | 0 | 4 | 2 | 0 | 42 | 8 | 1 | 2 |
+| tru | 0 | 1 | 2 | 0 | 1 | 0 | 0 | 13 | 43 | 0 | 0 |
+| vio | 8 | 1 | 3 | 1 | 4 | 2 | 1 | 3 | 2 | 34 | 0 |
+| voi | 0 | 0 | 0 | 0 | 1 | 0 | 1 | 0 | 0 | 0 | 76 |
+
+The exact same confusion pairs identified back in Run 1 are still visible (cla↔sax 12+2, sax↔tru
+8+13, cel↔vio 6+8) — same *direction* of confusion, but at roughly a third of the magnitude of the
+worst from-scratch runs. Pretraining reduced these confusions substantially without eliminating
+them — consistent with `notes/improv_cnn.md`'s diagnosis that some of these pairs are genuinely
+acoustically similar, not just an artifact of insufficient training data.
+
+### Verdict
+
+**Confirms the pretrained-embeddings hypothesis decisively.** A frozen AudioSet-pretrained backbone
+plus a tiny trained head beats every from-scratch architecture/regularization combination tried in
+Phase A by a wide margin (78% vs. 65% best), using a fraction of the trainable parameters (~22k vs.
+~430k) and converging far faster/more stably. This is strong evidence the from-scratch CNN's
+ceiling in Phase A was a real data-scarcity limit, not something more architecture/regularization
+tuning would have closed.
+
+---
+
+## Run 8 — `run8_ast_frozen`, `configs/ast.yaml`
+
+**Date:** 2026-08-22
+**What it is:** the literal "pretrained transformer" answer to the user's original question — AST
+(Audio Spectrogram Transformer), pretrained on AudioSet, frozen backbone + a fresh classifier head.
+Input: 16kHz/128-mel (matches this project's own choices), loop-padded to ~11s before AST's own
+feature extraction to avoid feeding its pretrained 1024-frame positional embeddings mostly silence
+(see `DECISIONS.md`, "AST input-length mismatch" entry).
+**Checkpoint:** `checkpoints/run8_ast_frozen.pt` (best epoch 8 of 30 — early stopping triggered).
+
+### Training curve (selected epochs; full log in `runs/run8_ast_frozen/`)
+
+| Epoch | Train loss | Train acc | Val loss | Val acc |
+|---:|---:|---:|---:|---:|
+| 1 | 1.4291 | 0.5992 | 1.0401 | 0.7040 |
+| 3 | 0.6838 | 0.7980 | 0.7876 | 0.7599 |
+| 5 | 0.5805 | 0.8169 | 0.7525 | 0.7644 |
+| **8** | **0.5118** | **0.8356** | **0.7277** | **0.7732 (best)** |
+| 15 (stop) | 0.4317 | 0.8605 | 0.7313 | 0.7703 |
+
+Even faster convergence than PANNs — plateaus by epoch 8 (vs. PANNs' 14) and the val curve is
+essentially flat/noiseless after that. Early stopping triggered slightly sooner too. This is the
+smoothest, most stable training curve of any run in the entire project.
+
+### Test set (684 clips)
+
+**Overall: accuracy 0.78, macro F1 0.76, weighted F1 0.78** — ties Run 7 (PANNs) almost exactly.
+
+| Class | Precision | Recall | F1 | Support |
+|---|---:|---:|---:|---:|
+| cel | 0.69 | 0.54 | 0.60 | 41 |
+| cla | 0.75 | 0.65 | 0.69 | 51 |
+| flu | 0.71 | 0.68 | 0.70 | 47 |
+| gac | 0.86 | 0.89 | 0.88 | 64 |
+| gel | 0.77 | 0.79 | 0.78 | 78 |
+| org | 0.88 | 0.94 | 0.91 | 69 |
+| pia | 0.84 | 0.91 | 0.87 | 74 |
+| sax | 0.61 | 0.65 | 0.63 | 63 |
+| tru | 0.78 | 0.67 | 0.72 | 60 |
+| vio | 0.65 | 0.68 | 0.66 | 59 |
+| voi | 0.94 | 0.99 | 0.96 | 78 |
+| **macro avg** | **0.77** | **0.76** | **0.76** | 684 |
+
+Near-identical macro F1 to PANNs (0.76 both), but a different balance: AST is stronger on org
+(0.91 vs 0.84), voi (0.96 vs 0.94), vio (0.66 vs 0.65); PANNs is stronger on cla (0.72 vs 0.69),
+tru (0.75 vs 0.72), cel (0.65 vs 0.60). Neither dominates the other class-by-class.
+
+### Confusion matrix (rows = true, cols = predicted)
+
+| true \ pred | cel | cla | flu | gac | gel | org | pia | sax | tru | vio | voi |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| cel | 22 | 1 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 12 | 0 |
+| cla | 0 | 33 | 5 | 0 | 0 | 0 | 0 | 10 | 2 | 1 | 0 |
+| flu | 0 | 1 | 32 | 0 | 4 | 4 | 3 | 1 | 1 | 1 | 0 |
+| gac | 0 | 0 | 0 | 57 | 1 | 0 | 5 | 0 | 0 | 0 | 1 |
+| gel | 1 | 0 | 0 | 6 | 62 | 4 | 2 | 2 | 0 | 1 | 0 |
+| org | 0 | 0 | 0 | 0 | 0 | 65 | 3 | 0 | 0 | 1 | 0 |
+| pia | 0 | 0 | 0 | 2 | 3 | 0 | 67 | 0 | 0 | 1 | 1 |
+| sax | 3 | 5 | 0 | 0 | 2 | 1 | 0 | 41 | 7 | 2 | 2 |
+| tru | 0 | 3 | 4 | 0 | 0 | 0 | 0 | 11 | 40 | 2 | 0 |
+| vio | 6 | 1 | 4 | 1 | 3 | 0 | 0 | 2 | 1 | 40 | 1 |
+| voi | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 77 |
+
+cel↔vio is notably worse here (12 cel→vio, the single largest off-diagonal entry in this whole
+matrix) than in Run 7 (6+8) — AST's biggest weak spot. Same recurring confusion families as every
+other run (cla↔sax, sax↔tru), just redistributed slightly differently.
+
+### Verdict
+
+**Directly answers the user's original question: yes, a *pretrained* transformer works — and works
+about as well as the pretrained CNN, both far ahead of anything from-scratch.** Neither
+architecture family (CNN vs. transformer) dominates once both start from AudioSet pretraining —
+the pretraining is what mattered, exactly as `notes/improv_cnn.md` predicted before either was
+run. AST converges slightly faster/more stably; PANNs and AST trade off different classes' F1 with
+no clear overall winner. Given they're essentially tied, the practical tie-breaker would be
+inference cost/deployment simplicity (PANNs: pure CNN, cheaper) rather than accuracy — not
+explored further here since it's outside the current scope.
+
+---
+
+## Summary — Phases A + B complete
+
+| Run | Config | Test acc | Macro F1 | Weighted F1 | Notes |
+|---|---|---:|---:|---:|---|
+| 1 — baseline | `configs/base.yaml` | 0.56 | 0.53 | 0.53 | severe overfitting |
+| 2 — regularization | `configs/reg.yaml` | 0.60 | 0.57 | 0.59 | overfitting closed |
+| 3 — SpecAugment | `configs/specaug.yaml` | 0.63 | 0.60 | 0.61 | cla collapse |
+| 4 — combined | `configs/combined.yaml` | 0.55 | 0.53 | 0.53 | under-trained (see Run 5) |
+| Ensemble (2+3) | *(no training)* | 0.65 | 0.62 | 0.63 | free improvement |
+| 5 — combined, extended | `configs/combined_extended.yaml` | 0.65 | 0.64 | 0.65 | best from-scratch result |
+| 6 — focal + SpecAugment | `configs/focal.yaml` | 0.58 | 0.56 | 0.58 | fixed cla, caused org collapse |
+| **7 — PANNs (frozen)** | `configs/panns.yaml` | **0.78** | **0.76** | **0.77** | **pretrained CNN** |
+| **8 — AST (frozen)** | `configs/ast.yaml` | **0.78** | **0.76** | **0.78** | **pretrained transformer** |
+
+**Best results: Run 7 (PANNs) and Run 8 (AST), effectively tied at 78% accuracy / 0.76 macro F1.**
+Both beat the best from-scratch result (Run 5, 65%/0.64) by ~13 points of accuracy while training
+roughly 20x fewer parameters (a linear head vs. a full CNN) and converging in ~10-15 epochs instead
+of 30-60. This closes the question that started Phase B: **the from-scratch CNN's ~65% ceiling was
+a genuine data-scarcity limit** (~5,300 training clips isn't much for learning instrument timbre
+from raw spectrograms), not a fixable regularization/architecture problem — pretraining on a much
+larger, more general audio corpus (AudioSet) is what actually moved the needle, and it moved it by
+roughly the same amount whether the pretrained backbone was a CNN or a transformer.
+
