@@ -1,0 +1,35 @@
+# Run 1 (results.md) — baseline, no regularization/augmentation beyond what's built into the
+# model. Kept as-is for reproducibility; new experiments are separate config files
+# (configs/reg.yaml, configs/specaug.yaml, configs/combined.yaml — see notes/improv_cnn.md).
+
+data:
+  dataset: irmas
+  sample_rate: 16000
+  clip_seconds: 3.0
+  n_mels: 128
+
+model:
+  name: baseline_cnn
+  num_classes: 11
+  dropout: 0.0          # conv-block dropout rate; 0.0 = none (Run 1 behavior)
+
+train:
+  batch_size: 64       # 32-128 fits the 6GB RTX 3050 — see DECISIONS.md, "Compute" entry
+  epochs: 30
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0     # L2 regularization; 0.0 = none (Run 1 behavior)
+  mixed_precision: true  # torch.cuda.amp — see DECISIONS.md, "Compute" entry
+  early_stopping_patience: null  # epochs with no val-acc improvement before stopping; null = off
+
+augmentation:
+  specaugment: false
+  freq_mask_param: 16   # max width of a masked frequency band (mel bins)
+  time_mask_param: 30   # max width of a masked time band (frames)
+  num_freq_masks: 1
+  num_time_masks: 1
+
+logging:
+  backend: tensorboard   # see DECISIONS.md, "Experiment tracking" entry
+  log_dir: runs/
+  run_name: run1_baseline

@@ -1,0 +1,20 @@
+# Exact versions verified working together in the `Sound` conda env (Python 3.13.15) on this
+# machine's RTX 3050 (driver 595.84, max supported CUDA 13.2). torch/torchaudio pull in their own
+# pinned nvidia-*-cu13 CUDA runtime packages (bundled CUDA 13.0.3) automatically — do not list
+# those separately. See DECISIONS.md, "Environment" and "Python version" entries for why these
+# versions.
+#
+# Reinstall: conda activate Sound && pip install -r requirements.txt
+
+torch==2.13.0
+torchaudio==2.11.0
+librosa==1.0.0
+scikit-learn==1.9.0
+tensorboard==2.21.0
+numpy==2.5.2
+pyyaml==6.0.3
+tqdm==4.70.0
+matplotlib==3.11.1
+soundfile==0.14.0
+requests==2.34.2
+pillow==12.3.0

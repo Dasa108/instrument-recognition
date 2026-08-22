@@ -1,0 +1,30 @@
+# Run 2 (results.md) — regularization only: weight decay + conv-block dropout + early stopping.
+# Isolates regularization's effect vs. Run 1's baseline. See notes/improv_cnn.md, section 1.
+
+data:
+  dataset: irmas
+  sample_rate: 16000
+  clip_seconds: 3.0
+  n_mels: 128
+
+model:
+  name: baseline_cnn
+  num_classes: 11
+  dropout: 0.2          # light dropout after each conv block (Run 1 had none)
+
+train:
+  batch_size: 64
+  epochs: 30             # early stopping will likely cut this short
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0001   # L2 regularization (Run 1 had none)
+  mixed_precision: true
+  early_stopping_patience: 7   # stop if val acc hasn't improved in 7 epochs
+
+augmentation:
+  specaugment: false     # isolating regularization only — SpecAugment is Run 3
+
+logging:
+  backend: tensorboard
+  log_dir: runs/
+  run_name: run2_regularization

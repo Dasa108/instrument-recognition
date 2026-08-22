@@ -1,6 +1,7 @@
-# Instrument Recognition — Project Spec (Draft v0.1)
+# Instrument Recognition — Project Spec (v1.0)
 
-**Status:** Draft for review — not yet finalized. Open questions flagged at the bottom.
+**Status:** Finalized (2026-08-21), fully self-paced (no fixed deadline). See `DECISIONS.md` for
+the reasoning behind each choice below.
 **Background:** theory covered in `notes/THEORY_NOTES.md` (7 modules: sound → sampling → FFT →
 spectrograms → mel scale → timbre → ML bridging). This spec turns that theory into an execution
 plan.
@@ -12,11 +13,13 @@ Build a model that identifies which musical instrument(s) are present in an audi
 ## 2. Scope — phased
 
 - **Phase 1 (MVP):** predominant-instrument recognition — one label per 3s clip, single-label
-  classification. Dataset: **IRMAS** (11 classes).
+  classification.
 - **Phase 2:** multi-label recognition on full songs — predict *all* instruments present, not
-  just the dominant one. Dataset: **OpenMIC-2018** or **Slakh2100**.
+  just the dominant one.
 - **Out of scope (for now):** instrument *separation* (isolating each instrument's audio), genre
   classification, real-time/streaming inference.
+
+Datasets for each phase: see Section 3.
 
 ## 3. Dataset
 
@@ -26,8 +29,10 @@ Build a model that identifies which musical instrument(s) are present in an audi
 | 2 | OpenMIC-2018 | ~20k × 10s clips | 20 instruments, multi-label (partial) | Weak/partial supervision |
 | 2 (alt) | Slakh2100 | 2100 full songs | multi-label, synthesized (MIDI-rendered) | Larger scale, not real recordings |
 
-Train/val/test split: use each dataset's official split where provided (IRMAS ships one); avoid
-splitting the same song across train/test to prevent leakage.
+Train/val/test split: IRMAS's "Testing" files are *not* a single-label test set (multi-labeled,
+variable-length — built for a different, detection-style task) and aren't used as Phase 1's held-out
+set. Instead, val/test are carved out of the Training data itself, grouped by song, to avoid the
+same song appearing in both train and eval. See `DECISIONS.md`, "IRMAS download scope" entry.
 
 ## 4. Preprocessing Pipeline
 
@@ -39,8 +44,8 @@ raw audio → resample to 16 kHz mono → fixed-length windows (3s, silence-pad 
 - Sample rate: 16 kHz (standard ML choice, sufficient for instrument energy range — see Mod 2).
 - Window: 3s clips, hop matching IRMAS convention.
 - STFT: ~25ms frame, ~10ms hop, Hann window (see Mod 4).
-- Output shape target: e.g. `128 mel bins × ~130 time frames` per clip (exact framing TBD once
-  implemented).
+- Output shape: `128 mel bins × 301 time frames` per 3s clip — verified against real IRMAS audio
+  (`src/preprocessing/audio_to_logmel.py`), not just calculated.
 
 ## 5. Model
 
@@ -60,17 +65,22 @@ raw audio → resample to 16 kHz mono → fixed-length windows (3s, silence-pad 
 - Python, PyTorch (model + training loop).
 - `librosa` or `torchaudio` for audio I/O and mel-spectrogram extraction.
 - `scikit-learn` for metrics.
-- Experiment tracking: TBD (plain logging vs. Weights & Biases) — see open questions.
+- Experiment tracking: TensorBoard (`torch.utils.tensorboard`).
+- Compute: local RTX 3050 (6GB VRAM, driver 595.84, CUDA 13.2) — confirmed working
+  (`torch.cuda.is_available() == True`). Batch size 32–128, `torch.cuda.amp` mixed precision.
+- Environment: conda env named `Sound` (Python 3.13) — see `README.md` for setup. All project
+  commands (installs, preprocessing, training, evaluation) run inside it, not the system Python.
+  Exact pinned package versions in `requirements.txt`.
 
 ## 8. Repo Structure (proposed)
 
 ```
-instrument_recognition/
+instrument-recognition/
 ├── notes/                # theory notes (existing)
 ├── spec.md               # this file
 ├── data/                 # raw + processed datasets (gitignored)
 ├── src/
-│   ├── data/              # download + dataset classes
+│   ├── datasets/          # download + Dataset/DataLoader classes (code, not data)
 │   ├── preprocessing/     # audio → log-mel spectrogram
 │   ├── models/             # CNN architectures
 │   ├── train.py
@@ -86,12 +96,3 @@ instrument_recognition/
 3. Baseline CNN training on IRMAS (Phase 1), report accuracy/F1.
 4. Iterate: pretrained-embedding upgrade if baseline is weak.
 5. Phase 2: multi-label pipeline on OpenMIC/Slakh2100.
-
-## 10. Open Questions (need your input before finalizing)
-
-- [ ] Confirm Phase 1 dataset: IRMAS okay as the starting point?
-- [ ] Framework preference: PyTorch assumed above — any objection / preference for TensorFlow?
-- [ ] Compute available: local GPU, Colab, or CPU-only? Affects model size / training time
-      expectations.
-- [ ] Experiment tracking: plain logs/CSV fine for now, or set up W&B/TensorBoard from the start?
-- [ ] Timeline/pace: any target deadline, or fully self-paced?

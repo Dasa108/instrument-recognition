@@ -11,5 +11,12 @@ venv/
 # Notebooks
 .ipynb_checkpoints/
 
+# Generated visualization outputs (regenerable, not source)
+notebooks/dataset_visualisation/
+
+# Training outputs
+runs/
+checkpoints/
+
 # OS
 .DS_Store
