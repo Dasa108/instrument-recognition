@@ -12,6 +12,40 @@ New entries go at the top (most recent first).
 
 ---
 
+## Inference script: default checkpoint is PANNs (Run 7), not AST (Run 8)
+
+**Decision:** `src/predict.py` (arbitrary-audio-file inference, `INFERENCE.md`) defaults to
+`checkpoints/run7_panns_frozen.pt` when `--checkpoint` isn't passed.
+
+**Context:** Run 7 (PANNs) and Run 8 (AST) are exactly tied on test accuracy and macro F1 (78% /
+0.76 each — `results.md`). A default had to be picked for the no-args happy path, but nothing in
+the accuracy numbers actually justifies picking one over the other.
+
+**Alternatives considered:**
+- **Default to AST (Run 8)** — equally valid on accuracy; slightly smoother/faster convergence
+  during training (not relevant to inference-time behavior).
+- **Require `--checkpoint` explicitly, no default** — more honest about the tie, but worse
+  first-run experience for the common case of "just tell me what instrument this is."
+- **Ensemble both** — the Phase A precedent (Run 2 + Run 3 ensembling) suggests this could beat
+  either alone, but building a cross-architecture ensemble inference path is real, untested extra
+  work (PANNs and AST need completely different preprocessing — 32kHz raw waveform vs.
+  16kHz/loop-padded/feature-extracted — `src/ensemble_evaluate.py` currently refuses to ensemble
+  checkpoints with different `model.name` for exactly this reason). Not attempted; a real
+  candidate for a future run if it's ever worth validating.
+
+**Why this one:** not an accuracy argument — a practical one. PANNs is a plain CNN; once its
+checkpoint is cached locally (`~/panns_data/`), predicting has no further network dependency. AST
+calls out to the HuggingFace Hub for its feature-extractor config on every invocation (small, but
+real). `--checkpoint checkpoints/run8_ast_frozen.pt` switches to AST at any time — the default is
+a convenience choice, not a claim that PANNs predicts better.
+
+**Trade-offs / risks accepted:** none significant — this is reversible per-invocation via a flag,
+documented explicitly in `INFERENCE.md` so the tie isn't misread as "PANNs won."
+
+**Status:** Confirmed (2026-08-22).
+
+---
+
 ## Bug fix: `mixed_precision: false` never actually disabled autocast
 
 **What happened:** `run_epoch`'s autocast context used `enabled=(scaler is not None)` — but

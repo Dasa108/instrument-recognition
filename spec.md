@@ -1,4 +1,4 @@
-# Instrument Recognition — Project Spec (v1.1)
+# Instrument Recognition — Project Spec (v1.2)
 
 **Status:** Finalized (2026-08-21), fully self-paced (no fixed deadline). See `DECISIONS.md` for
 the reasoning behind each choice below.
@@ -6,13 +6,14 @@ the reasoning behind each choice below.
 spectrograms → mel scale → timbre → ML bridging). This spec turns that theory into an execution
 plan.
 
-**Progress (updated 2026-08-22): Phase 1 is functionally complete.** Every section below now
-reflects what was actually built, not just planned — the whole pipeline (download →
-preprocessing → model → training → evaluation) is implemented and has run end-to-end multiple
-times. Best result: **78% test accuracy / 0.76 macro F1**, tied between a pretrained CNN (PANNs)
-and a pretrained transformer (AST) — see Section 5 and Section 9. Full numbers, curves, and
-confusion matrices for all 8 training runs + 1 ensemble: `results.md`. Reasoning behind every
-non-obvious choice made along the way: `DECISIONS.md`. Phase 2 (multi-label) has not started.
+**Progress (updated 2026-08-22): Phase 1 is complete.** Every section below now reflects what was
+actually built, not just planned — the whole pipeline (download → preprocessing → model →
+training → evaluation → **inference on arbitrary audio**) is implemented and has run end-to-end
+multiple times. Best result: **78% test accuracy / 0.76 macro F1**, tied between a pretrained CNN
+(PANNs) and a pretrained transformer (AST) — see Section 5 and Section 9. Want a prediction on
+your own audio file right now? See `INFERENCE.md`. Full numbers, curves, and confusion matrices
+for all 8 training runs + 1 ensemble: `results.md`. Reasoning behind every non-obvious choice made
+along the way: `DECISIONS.md`. Phase 2 (multi-label) has not started.
 
 ## 1. Objective
 
@@ -171,10 +172,17 @@ instrument-recognition/
    worked decisively. PANNs (pretrained CNN) and AST (pretrained transformer), both frozen-
    backbone: **78% / macro F1 0.76, tied.** This is Phase 1's current best result and where the
    project currently stands. Full breakdown: `results.md`, Runs 7-8.
-5. ⬜ Phase 2: multi-label pipeline on OpenMIC/Slakh2100. **Not started.** IRMAS Testing data
+5. ✅ Usable inference: `src/predict.py` — takes **any** audio file (not just pre-split IRMAS
+   clips), any length, and returns a prediction using either trained model. Instructions:
+   `INFERENCE.md`. This closes the gap between "a checkpoint that scores well on a held-out test
+   set" and "a model you can actually point at a file and use," which Section 1's objective
+   implies but the milestones above didn't explicitly call out.
+6. ⬜ Phase 2: multi-label pipeline on OpenMIC/Slakh2100. **Not started.** IRMAS Testing data
    (2,874 multi-labeled clips) is already downloaded and ready for this once it begins.
 
-**Open, not yet decided** (see `HANDOFF.md` for full context): accept 78% as Phase 1's final
-result and move to Phase 2, or push further on Phase 1 first (fine-tuning PANNs/AST rather than
-frozen-backbone-only, AST embedding interpolation instead of loop-padding, or ensembling Run 7 +
-Run 8 the way Run 2 + Run 3 were ensembled in Phase A).
+**Phase 1 status: complete.** Every milestone above is done, including a working end-to-end path
+from raw audio to prediction. What remains is genuinely optional polish, not unfinished work:
+fine-tuning PANNs/AST instead of frozen-backbone-only, AST embedding interpolation instead of
+loop-padding, or ensembling Run 7 + Run 8 the way Run 2 + Run 3 were ensembled in Phase A. None of
+these are blocking — Phase 1 can be considered closed as-is, with Phase 2 (multi-label) as the
+next real step if the project continues.

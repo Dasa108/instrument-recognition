@@ -119,13 +119,23 @@ a 3rd architecture entered the picture. See `DECISIONS.md` for full reasoning on
 
 Plan approved via plan-mode, saved at `/home/sudarshanab/.claude/plans/federated-hopping-naur.md`.
 
-**Phases A and B are both complete.** Open, not yet decided:
-1. Accept Run 7/8 (78%/0.76, tied) as Phase 1's final result, or push further — untried options
-   include fine-tuning (not just frozen backbone) either pretrained model, AST embedding
-   interpolation instead of loop-padding (`DECISIONS.md`, "AST input-length mismatch" entry), or
-   ensembling Run 7+Run 8 the same way Run 2+3 were ensembled in Phase A.
-2. Phase 2 (multi-label, OpenMIC-2018 / Slakh2100) — IRMAS Testing data (fully downloaded, 2,874
-   multi-labeled clips) becomes relevant here; was deprioritized behind Phase B, now unblocked.
+**Inference script built (2026-08-22): `src/predict.py` + `INFERENCE.md`.** Takes any audio file
+(not just pre-split IRMAS clips) via `soundfile`/`librosa` (WAV/MP3/FLAC/OGG/etc., verified —
+`libsndfile` 1.2.2 handles these natively, no `ffmpeg` needed), any length (windowed into 3s
+chunks, silence-padded tail, same convention as training), works with any checkpoint
+(`baseline_cnn`/`panns_cnn14`/`ast`, dispatched via `src/models/registry.py`). Defaults to Run 7
+(PANNs) — a practical choice (no HF Hub call needed at inference time once cached), not an
+accuracy claim, since Run 7/8 are exactly tied — see `DECISIONS.md`, "Inference script: default
+checkpoint" entry. Smoke-tested against all three model types on real IRMAS files, including a
+genuine multi-window (5-window) prediction on a variable-length Testing clip.
+
+**Phase 1 status: complete.** All milestones done (`spec.md` §9), including the inference script —
+that closes the gap between "a checkpoint that scores well on held-out test data" and "a model you
+can actually point at a file and use." Remaining options (fine-tuning instead of frozen-backbone,
+AST embedding interpolation, ensembling Run 7+8) are genuine optional polish, not blockers — see
+`spec.md` §9 for the same framing. Next real step, if the project continues: **Phase 2**
+(multi-label, OpenMIC-2018 / Slakh2100) — IRMAS Testing data (fully downloaded, 2,874 multi-labeled
+clips) becomes relevant there.
 
 Note (historical): `nvidia-smi` initially couldn't reach the GPU driver from within a Claude Code
 session (likely a transient sandboxing state) — confirmed the card via `lspci` at the time. It
