@@ -9,17 +9,22 @@ is the index; it doesn't duplicate the other docs:
 
 ## Note on code versioning
 
-The repo has had **no commits since the initial scaffold** (`git log`: one commit, "Initial
-project setup") — everything since (repo scaffold, download script, preprocessing, model,
-training loop, and all four runs below) has been done directly in the working tree, uncommitted.
-So "code version" per run below means *config file* + *current shared code in `src/`*, not a git
-SHA — there's no commit history to pin an exact snapshot to. One consequence worth knowing:
-`src/train.py`/`src/models/cnn.py` were extended for Runs 2-4 (added `weight_decay`, conv-block
-`dropout`, SpecAugment, early stopping) *after* Run 1 finished — Run 1 predates that code. Its
-config, `configs/base.yaml`, sets `dropout: 0.0`, `weight_decay: 0.0`, `augmentation.specaugment:
-false` specifically so that running it again with the *current* code reproduces Run 1's original
+**Correction (2026-08-22):** this section previously claimed "no commits since the initial
+scaffold" — that's now stale. `git log` shows 2 commits (`95c040c` initial scaffold, `53a058e`
+"Implement Phase 1 pipeline..." covering the download script through Runs 1-4), working tree
+clean as of that commit. Runs 5+ below (and any further code changes) postdate `53a058e` and will
+get their own commit once logged.
+
+One consequence still worth knowing regardless of commit state: `src/train.py`/`src/models/cnn.py`
+were extended for Runs 2-4 (added `weight_decay`, conv-block `dropout`, SpecAugment, early
+stopping) *after* Run 1 finished — Run 1 predates that code within the working tree, though both
+ended up captured in the same commit (`53a058e`) once Runs 1-4 were all done. Its config,
+`configs/base.yaml`, sets `dropout: 0.0`, `weight_decay: 0.0`, `augmentation.specaugment: false`
+specifically so that running it again with the *current* code reproduces Run 1's original
 architecture/behavior exactly (those knobs are no-ops at their default values) — so Run 1 stays
-reproducible from current code despite predating the code that added those options.
+reproducible from current code despite predating the code that added those options. Same logic
+applies to Runs 1-4 vs. the `loss:` dispatch added for Run 6 (absent `loss:` block → today's plain
+cross-entropy, unchanged).
 
 ## Runs
 
@@ -29,10 +34,17 @@ reproducible from current code despite predating the code that added those optio
 | 2 — regularization | + weight decay (1e-4) + conv-block dropout (0.2), isolated | `configs/reg.yaml` | `checkpoints/run2_regularization.pt` | `runs/run2_regularization/` | Done — see `results.md` Run 2 |
 | 3 — SpecAugment | + time/frequency masking on input, isolated | `configs/specaug.yaml` | `checkpoints/run3_specaugment.pt` | `runs/run3_specaugment/` | Done — see `results.md` Run 3 |
 | 4 — combined | Run 2 + Run 3 together | `configs/combined.yaml` | `checkpoints/run4_combined.pt` | `runs/run4_combined/` | Done — see `results.md` Run 4 |
+| Ensemble (2+3) | Soft-vote average of Run 2 + Run 3's softmax outputs, no retraining | *(none — see `src/ensemble_evaluate.py`)* | *(none)* | *(none)* | Done — see `results.md` "Ensemble" section. **Best result so far.** |
+| 5 — combined, extended | Run 4's recipe, more epochs (60 vs 30) — tests Run 4's under-training hypothesis | `configs/combined_extended.yaml` | `checkpoints/run5_combined_extended.pt` | `runs/run5_combined_extended/` | Done — see `results.md` Run 5. **Best single-model result.** |
+| 6 — focal + SpecAugment | Run 3's recipe + focal loss (targets the confirmed confusions instead of overfitting) | `configs/focal.yaml` | `checkpoints/run6_focal_specaugment.pt` | `runs/run6_focal_specaugment/` | Done — see `results.md` Run 6. Early-stopped at epoch 20 (best epoch 13). Fixed clarinet collapse, caused a worse organ collapse — net worse than Run 3. |
+| 6b — class-weighted + SpecAugment *(optional control)* | Run 3's recipe + inverse-frequency class weighting | `configs/class_weighted.yaml` | `checkpoints/run6b_class_weighted_specaugment.pt` | `runs/run6b_class_weighted_specaugment/` | Not run — deprioritized in favor of Phase B, see `results.md` Run 6 verdict |
 
-All four runs are complete — see `results.md` for the full breakdown and cross-run summary table.
-**Best result: Run 3 (SpecAugment alone).** None of the three triggered early stopping (patience 7
-on val accuracy) — all ran the full 30-epoch cap in their configs.
+Reproduce the ensemble result: `python -m src.ensemble_evaluate --checkpoints checkpoints/run2_regularization.pt checkpoints/run3_specaugment.pt`.
+
+**Phase A complete (2026-08-22).** Best result: Run 5 (`checkpoints/run5_combined_extended.pt`) —
+highest macro F1 of any run/ensemble, ties the ensemble's accuracy, most balanced across classes.
+Full comparison table: `results.md`, "Summary — Phase A complete". Next: Phase B (PANNs/AST
+pretrained embeddings) — see `notes/improv_cnn.md`.
 
 ## How to reproduce or inspect a run
 

@@ -1,0 +1,38 @@
+# Run 5 (results.md) — Run 4's exact recipe (regularization + SpecAugment) with a longer epoch
+# budget. Tests Run 4's own verdict: its curve was still slowly improving at epoch 30, not
+# plateaued — this checks whether that was under-training rather than a bad combination.
+# LR unchanged deliberately (isolate one variable — more epochs — at a time). See DECISIONS.md.
+
+data:
+  dataset: irmas
+  sample_rate: 16000
+  clip_seconds: 3.0
+  n_mels: 128
+
+model:
+  name: baseline_cnn
+  num_classes: 11
+  dropout: 0.2
+
+train:
+  batch_size: 64
+  epochs: 60              # was 30 in Run 4 — ~87s/epoch measured across Runs 1-4, so ~87min total
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0001
+  mixed_precision: true
+  early_stopping_patience: 12  # was 7 — a longer run may pass through a longer slow-improvement
+                                # plateau before a genuine late gain; patience 7 never triggered in
+                                # Run 4 even under slow improvement, so it wasn't the constraint
+
+augmentation:
+  specaugment: true
+  freq_mask_param: 16
+  time_mask_param: 30
+  num_freq_masks: 1
+  num_time_masks: 1
+
+logging:
+  backend: tensorboard
+  log_dir: runs/
+  run_name: run5_combined_extended

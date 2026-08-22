@@ -1,7 +1,9 @@
 # Results Log
 
 **Purpose:** a running record of every training run's actual numbers, so later variations (see
-`notes/improv_cnn.md`) have something concrete to compare against. New runs go at the top.
+`notes/improv_cnn.md`) have something concrete to compare against. New runs go at the **bottom**
+(chronological order) — unlike `DECISIONS.md`'s most-recent-first convention, each run's verdict
+here builds on and references the one before it, so reading top-to-bottom tells the actual story.
 
 Each entry: config summary, per-epoch curve, held-out test-set metrics (accuracy/per-class
 precision-recall-F1/confusion matrix), and a one-line verdict.
@@ -357,18 +359,266 @@ off. Given this specific setup, **Run 3 (SpecAugment alone) is currently the bes
 
 ---
 
-## Summary across all four runs
+## Ensemble — Run 2 + Run 3 (soft-vote)
 
-| Run | Config | Test acc | Macro F1 | Weighted F1 | Train/val gap at best epoch |
+**Date:** 2026-08-22
+**What it is:** no retraining — averages Run 2's and Run 3's softmax probabilities on the same
+held-out test split (`src/ensemble_evaluate.py`), then argmaxes. Motivation: Run 2 (stable,
+balanced) and Run 3 (highest accuracy, but collapsed clarinet recall) looked like they might have
+*complementary* rather than *correlated* errors — see `notes/improv_cnn.md`, "Phase A" section.
+**Artifacts:** no checkpoint/config of its own (see `EXPERIMENTS.md`) — reproduce with:
+```
+python -m src.ensemble_evaluate --checkpoints checkpoints/run2_regularization.pt checkpoints/run3_specaugment.pt
+```
+
+### Test set (684 clips)
+
+**Overall: accuracy 0.65, macro F1 0.62, weighted F1 0.63 — beats every individual run,
+including Run 3's previous-best 0.63/0.60/0.61.**
+
+| Class | Precision | Recall | F1 | Support |
+|---|---:|---:|---:|---:|
+| cel | 0.77 | 0.56 | 0.65 | 41 |
+| cla | 1.00 | 0.22 | 0.35 | 51 |
+| flu | 0.64 | 0.60 | 0.62 | 47 |
+| gac | 0.76 | 0.53 | 0.62 | 64 |
+| gel | 0.68 | 0.46 | 0.55 | 78 |
+| org | 0.79 | 0.93 | 0.85 | 69 |
+| pia | 0.49 | 0.95 | 0.64 | 74 |
+| sax | 0.46 | 0.30 | 0.37 | 63 |
+| tru | 0.57 | 0.92 | 0.71 | 60 |
+| vio | 0.62 | 0.63 | 0.62 | 59 |
+| voi | 0.87 | 0.88 | 0.88 | 78 |
+| **macro avg** | **0.69** | **0.63** | **0.62** | 684 |
+
+Confirms the hypothesis: the ensemble beats *both* inputs, so Run 2 and Run 3's errors were at
+least partly complementary, not just correlated noise. Notably, Run 3's clarinet collapse (0.16
+recall) partially recovers here (0.22) — still weak vs. Run 2's own 0.47 alone, but better than
+Run 3 alone — consistent with Run 2's vote pulling some clarinet predictions back from Run 3's
+overconfident sax/trumpet guesses.
+
+### Confusion matrix (rows = true, cols = predicted)
+
+| true \ pred | cel | cla | flu | gac | gel | org | pia | sax | tru | vio | voi |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| cel | 23 | 0 | 2 | 0 | 5 | 0 | 4 | 0 | 2 | 5 | 0 |
+| cla | 0 | 11 | 7 | 0 | 0 | 0 | 4 | 13 | 13 | 3 | 0 |
+| flu | 0 | 0 | 28 | 0 | 0 | 2 | 12 | 1 | 1 | 3 | 0 |
+| gac | 0 | 0 | 0 | 34 | 2 | 3 | 22 | 0 | 3 | 0 | 0 |
+| gel | 1 | 0 | 0 | 5 | 36 | 8 | 18 | 1 | 2 | 3 | 4 |
+| org | 0 | 0 | 0 | 0 | 3 | 64 | 2 | 0 | 0 | 0 | 0 |
+| pia | 0 | 0 | 0 | 1 | 0 | 1 | 70 | 0 | 0 | 0 | 2 |
+| sax | 4 | 0 | 2 | 1 | 3 | 0 | 10 | 19 | 16 | 6 | 2 |
+| tru | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 2 | 55 | 2 | 0 |
+| vio | 2 | 0 | 4 | 4 | 0 | 3 | 1 | 2 | 4 | 37 | 2 |
+| voi | 0 | 0 | 0 | 0 | 4 | 0 | 1 | 3 | 0 | 1 | 69 |
+
+### Verdict
+
+**Best result so far, for free.** No new training, no new hyperparameters to tune — just averaging
+two already-trained models. gac→pia (22) and sax↔tru (16/10) confusions persist (as they have in
+every run), consistent with `notes/improv_cnn.md`'s diagnosis that these are a genuine
+feature-discriminability limit rather than something regularization/ensembling alone fully
+resolves. Next: does more training time fix Run 4's under-training (Run 5), and does focal loss
+targeting these exact confused pairs help beyond what ensembling already recovered (Run 6)?
+
+---
+
+## Run 5 — `run5_combined_extended`, `configs/combined_extended.yaml`
+
+**Date:** 2026-08-22
+**Change from Run 4:** identical recipe (weight decay 1e-4 + conv dropout 0.2 + SpecAugment), just
+`epochs: 60` (was 30) and `early_stopping_patience: 12` (was 7) — testing Run 4's own verdict that
+it was under-trained, not fundamentally a bad combination. See `DECISIONS.md`, "Combined-recipe
+epoch budget" entry.
+**Checkpoint:** `checkpoints/run5_combined_extended.pt` (best epoch 56 of 60).
+
+### Training curve (selected epochs; full log in `runs/run5_combined_extended/`)
+
+| Epoch | Train loss | Train acc | Val loss | Val acc |
+|---:|---:|---:|---:|---:|
+| 1 | 2.2884 | 0.1750 | 2.1729 | 0.2283 |
+| 10 | 1.8526 | 0.3669 | 1.8126 | 0.4080 |
+| 20 | 1.6689 | 0.4390 | 1.6245 | 0.4875 |
+| 30 | 1.5175 | 0.4867 | 1.4776 | 0.5287 |
+| 40 | 1.4002 | 0.5359 | 1.3758 | 0.5670 |
+| 50 | 1.2836 | 0.5721 | 1.3095 | 0.5773 |
+| **56** | **1.1951** | **0.5994** | **1.2679** | **0.6082 (best)** |
+| 60 | 1.1674 | 0.6103 | 1.2463 | 0.6068 |
+
+**Confirms the hypothesis decisively.** The curve climbs smoothly and monotonically the entire 60
+epochs — no oscillation, no overfitting (train/val gap stays ~1-2 points throughout, even smaller
+than Run 2's), and it's *still climbing* at epoch 60 (val 0.6068 at epoch 60 vs. 0.6082 at epoch
+56 — essentially a plateau just starting to form, not a clear peak-and-decline). Compare to Run
+4's original 30-epoch curve, which reached only val acc 0.5272 by its endpoint — this run doubles
+that (0.6082) simply by training longer on the exact same recipe.
+
+### Test set (684 clips)
+
+**Overall: accuracy 0.65, macro F1 0.64, weighted F1 0.65** — ties the ensemble's accuracy (0.65)
+and has the **highest macro F1 of any run or the ensemble so far** (previous best: ensemble's
+0.62; previous best single-model: Run 3's 0.60).
+
+| Class | Precision | Recall | F1 | Support |
+|---|---:|---:|---:|---:|
+| cel | 0.54 | 0.49 | 0.51 | 41 |
+| cla | 0.55 | 0.67 | 0.60 | 51 |
+| flu | 0.67 | 0.38 | 0.49 | 47 |
+| gac | 0.70 | 0.77 | 0.73 | 64 |
+| gel | 0.48 | 0.67 | 0.56 | 78 |
+| org | 0.88 | 0.86 | 0.87 | 69 |
+| pia | 0.74 | 0.81 | 0.77 | 74 |
+| sax | 0.44 | 0.46 | 0.45 | 63 |
+| tru | 0.77 | 0.78 | 0.78 | 60 |
+| vio | 0.71 | 0.37 | 0.49 | 59 |
+| voi | 0.78 | 0.74 | 0.76 | 78 |
+| **macro avg** | **0.66** | **0.64** | **0.64** | 684 |
+
+No class collapses (unlike Run 3's clarinet: cla recall here is a healthy 0.67, the best of any
+run). Most balanced result yet — no F1 below 0.45, several classes (org 0.87, pia 0.77, tru 0.78)
+at their best or near-best across all runs/ensemble.
+
+### Confusion matrix (rows = true, cols = predicted)
+
+| true \ pred | cel | cla | flu | gac | gel | org | pia | sax | tru | vio | voi |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| cel | 20 | 2 | 1 | 0 | 9 | 0 | 1 | 6 | 0 | 2 | 0 |
+| cla | 1 | 34 | 1 | 0 | 5 | 0 | 0 | 5 | 3 | 2 | 0 |
+| flu | 1 | 12 | 18 | 0 | 7 | 4 | 3 | 1 | 0 | 0 | 1 |
+| gac | 0 | 0 | 0 | 49 | 4 | 0 | 9 | 0 | 0 | 1 | 1 |
+| gel | 2 | 0 | 0 | 5 | 52 | 0 | 6 | 7 | 1 | 2 | 3 |
+| org | 0 | 0 | 0 | 4 | 3 | 59 | 1 | 0 | 0 | 0 | 2 |
+| pia | 0 | 1 | 1 | 5 | 0 | 3 | 60 | 1 | 0 | 0 | 3 |
+| sax | 4 | 4 | 1 | 2 | 9 | 0 | 1 | 29 | 7 | 2 | 4 |
+| tru | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 7 | 47 | 0 | 1 |
+| vio | 9 | 4 | 5 | 4 | 7 | 1 | 0 | 3 | 3 | 22 | 1 |
+| voi | 0 | 0 | 0 | 1 | 12 | 0 | 0 | 7 | 0 | 0 | 58 |
+
+gac→pia drops to 9 (from 22-25 in most other runs) — the "pia sink" pattern is markedly reduced
+here, though not eliminated. sax↔tru/gel persists (7/9). vio recall (0.37) is now the weakest
+class — vio errors spread across cel/flu/gel rather than concentrating on one confusion partner.
+
+### Verdict
+
+**Best single-model result — Run 4's under-training diagnosis was correct.** Doubling the epoch
+budget alone (no other change) took the exact same recipe from underperforming both individual
+techniques (55%/0.53) to beating all of them (65%/0.64). This is a clean, unambiguous confirmation:
+**the earlier "combining regularization techniques doesn't help" conclusion was an artifact of an
+insufficient epoch budget, not a real interaction effect.** Given the curve was still climbing at
+epoch 60, further gains from even more epochs are plausible but untested — not pursued further here
+since Run 6 (focal loss) is the next planned experiment and diminishing returns are likely.
+
+---
+
+## Run 6 — `run6_focal_specaugment`, `configs/focal.yaml`
+
+**Date:** 2026-08-22
+**Change from Run 3:** identical recipe (SpecAugment, no weight decay/dropout) + focal loss
+(`gamma=2.0`, no class weighting) replacing plain cross-entropy — targets Run 3's specific
+clarinet-recall collapse and the confusions persisting across every prior run. See `DECISIONS.md`,
+"Loss: focal over class-weighted" entry.
+**Checkpoint:** `checkpoints/run6_focal_specaugment.pt` (best epoch 13 of 30 — **early stopping
+triggered**, no improvement for 7 epochs after).
+
+### Training curve (selected epochs; full log in `runs/run6_focal_specaugment/`)
+
+| Epoch | Train loss | Train acc | Val loss | Val acc |
+|---:|---:|---:|---:|---:|
+| 1 | 1.6072 | 0.2712 | 1.8317 | 0.2342 |
+| 5 | 0.8078 | 0.5721 | 1.4396 | 0.3918 |
+| 9 | 0.5873 | 0.6601 | 1.1658 | 0.4934 |
+| **13** | **0.4820** | **0.7177** | **1.0835** | **0.5346 (best)** |
+| 16 | 0.3941 | 0.7450 | 2.4940 | 0.3432 |
+| 20 (stop) | 0.2783 | 0.8089 | 2.1309 | 0.3976 |
+
+Note: focal loss values aren't directly comparable in magnitude to Run 1-5's cross-entropy loss
+values (different loss function) — only the *trend* and accuracy columns are comparable across
+runs. The val curve is the most volatile of any run so far (e.g. epoch 15→16: 0.50→0.34), and
+**this is the first run where early stopping actually triggered** — no val-acc improvement for 7
+straight epochs after epoch 13.
+
+### Test set (684 clips)
+
+**Overall: accuracy 0.58, macro F1 0.56, weighted F1 0.58** — worse than Run 3, the recipe this
+was built on (0.63/0.60/0.61), and worse than Run 5 (0.65/0.64/0.65).
+
+| Class | Precision | Recall | F1 | Support |
+|---|---:|---:|---:|---:|
+| cel | 0.83 | 0.24 | 0.38 | 41 |
+| cla | 0.54 | 0.63 | 0.58 | 51 |
+| flu | 0.67 | 0.34 | 0.45 | 47 |
+| gac | 0.77 | 0.56 | 0.65 | 64 |
+| gel | 0.59 | 0.65 | 0.62 | 78 |
+| org | 0.32 | **1.00** | 0.49 | 69 |
+| pia | 0.91 | 0.68 | 0.78 | 74 |
+| sax | 0.51 | 0.40 | 0.45 | 63 |
+| tru | 0.77 | 0.72 | 0.74 | 60 |
+| vio | 0.80 | 0.20 | 0.32 | 59 |
+| voi | 0.79 | 0.69 | 0.74 | 78 |
+| **macro avg** | **0.68** | **0.56** | **0.56** | 684 |
+
+**A genuinely mixed result, not simply "worse."** The specific problem this targeted — Run 3's
+clarinet collapse — is substantially fixed: cla recall 0.16 (Run 3) → **0.63** here, one of the
+best cla results of any run. But focal loss introduced a **new, more severe collapse**: org recall
+hit **1.00** (perfect recall, 0.32 precision) — the model became a near-unconditional "guess organ
+when unsure" machine, absorbing large numbers of flu/gac/gel/pia/vio misclassifications (see
+confusion matrix). vio recall also dropped to 0.20, the worst of any run. Net effect: fixing one
+failure mode traded it for a different, larger one.
+
+### Confusion matrix (rows = true, cols = predicted)
+
+| true \ pred | cel | cla | flu | gac | gel | org | pia | sax | tru | vio | voi |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| cel | 10 | 6 | 0 | 1 | 8 | 2 | 1 | 6 | 3 | 3 | 1 |
+| cla | 0 | 32 | 4 | 0 | 2 | 9 | 0 | 3 | 1 | 0 | 0 |
+| flu | 0 | 2 | 16 | 0 | 1 | 26 | 0 | 0 | 0 | 0 | 2 |
+| gac | 0 | 0 | 0 | 36 | 4 | 18 | 3 | 2 | 0 | 0 | 1 |
+| gel | 0 | 0 | 0 | 2 | 51 | 21 | 1 | 0 | 1 | 0 | 2 |
+| org | 0 | 0 | 0 | 0 | 0 | 69 | 0 | 0 | 0 | 0 | 0 |
+| pia | 0 | 0 | 0 | 7 | 0 | 17 | 50 | 0 | 0 | 0 | 0 |
+| sax | 0 | 13 | 1 | 1 | 9 | 10 | 0 | 25 | 2 | 0 | 2 |
+| tru | 0 | 3 | 0 | 0 | 0 | 9 | 0 | 4 | 43 | 0 | 1 |
+| vio | 2 | 3 | 3 | 0 | 3 | 19 | 0 | 6 | 6 | 12 | 5 |
+| voi | 0 | 0 | 0 | 0 | 8 | 13 | 0 | 3 | 0 | 0 | 54 |
+
+The org row is a clean diagonal (69/69, never misclassified *as* something else), but org is the
+single most common wrong answer for 6 of the other 10 classes. This is the "pia sink" pattern seen
+in earlier runs, but worse — concentrated on one class instead of spread across two or three, and
+with 100% recall on that class as the tell.
+
+### Verdict
+
+**Focal loss, as configured here, is not an improvement over Run 3 — hold this recipe, don't adopt
+it.** The result is informative rather than simply negative: it demonstrates focal loss's
+upweighting of hard/low-confidence examples can overcorrect and manufacture a new systematic bias
+(here, org as an attractor class) rather than cleanly fixing the targeted confusion. Whether a
+lower `gamma` (less aggressive upweighting) would fix the org collapse while keeping the clarinet
+improvement is untested — a reasonable follow-up if focal loss is revisited, but not pursued now
+given Run 5 already beats this result outright on every metric. **Run 5 remains the best
+single-model result; the Run 2+3 ensemble remains competitive on accuracy.** The optional
+class-weighted control (`configs/class_weighted.yaml`) was not run — Run 6's outcome doesn't change
+the reasoning against class-weighting as a primary fix (see `DECISIONS.md`), and priority shifted
+to Phase B (pretrained embeddings) given Phase A's clearest win was Run 5's epoch-budget fix, not
+loss-function changes.
+
+---
+
+## Summary — Phase A complete
+
+| Run | Config | Test acc | Macro F1 | Weighted F1 | Notes |
 |---|---|---:|---:|---:|---|
-| 1 — baseline | `configs/base.yaml` | 0.56 | 0.53 | 0.53 | ~42 pts (severe overfitting) |
-| 2 — regularization | `configs/reg.yaml` | 0.60 | 0.57 | 0.59 | ~0 pts (none) |
-| **3 — SpecAugment** | `configs/specaug.yaml` | **0.63** | **0.60** | **0.61** | ~26 pts (reduced) |
-| 4 — combined | `configs/combined.yaml` | 0.55 | 0.53 | 0.53 | ~4 pts (none, but under-trained) |
+| 1 — baseline | `configs/base.yaml` | 0.56 | 0.53 | 0.53 | severe overfitting (~42pt gap) |
+| 2 — regularization | `configs/reg.yaml` | 0.60 | 0.57 | 0.59 | overfitting fully closed |
+| 3 — SpecAugment | `configs/specaug.yaml` | 0.63 | 0.60 | 0.61 | highest solo accuracy (pre-Run5), cla collapse |
+| 4 — combined | `configs/combined.yaml` | 0.55 | 0.53 | 0.53 | underperformed both alone — under-trained (see Run 5) |
+| Ensemble (2+3) | *(no training)* | 0.65 | 0.62 | 0.63 | best accuracy (tied), no retraining needed |
+| **5 — combined, extended** | `configs/combined_extended.yaml` | **0.65** | **0.64** | **0.65** | **best overall — most balanced, no class collapse** |
+| 6 — focal + SpecAugment | `configs/focal.yaml` | 0.58 | 0.56 | 0.58 | fixed cla collapse, caused a worse org collapse |
 
-**Best result: Run 3 (SpecAugment alone), 63% test accuracy / 0.60 macro F1.** Run 2 is the most
-*stable* (zero overfitting, smoothest curve) but Run 3 reaches higher peak accuracy despite more
-volatility. Run 4's failure to beat either individual technique is itself the most informative
-result for future iteration: don't assume stacking regularization techniques helps without
-budgeting more training time for the harder optimization problem it creates.
+**Best result: Run 5 (combined recipe, extended to 60 epochs).** Highest macro F1 of any run or
+ensemble, ties the ensemble's accuracy, and is the most balanced across classes (no F1 below 0.45,
+vs. every other run/ensemble having at least one class below 0.40). The single biggest lesson from
+Phase A: **training budget mattered more than which regularization techniques were combined** —
+Run 4 and Run 5 are the *same recipe*, and doubling the epoch count alone closed a 10-point
+accuracy gap. Phase B (pretrained embeddings — PANNs, AST) is next; see `notes/improv_cnn.md`.
 

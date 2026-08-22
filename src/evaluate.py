@@ -25,14 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def main(checkpoint_path: str) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    ckpt = torch.load(REPO_ROOT / checkpoint_path, map_location=device)
-
-    model = BaselineCNN(
-        num_classes=ckpt["config"]["model"]["num_classes"],
-        dropout=ckpt["config"]["model"].get("dropout", 0.0),
-    ).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
-    model.eval()
+    model, ckpt = BaselineCNN.from_checkpoint(REPO_ROOT / checkpoint_path, device)
     print(f"loaded checkpoint from epoch {ckpt['epoch']} (val acc {ckpt['val_acc']:.4f})")
 
     test_ds = IRMASDataset(split="test")

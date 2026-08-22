@@ -1,0 +1,43 @@
+# Run 6 (results.md) — Run 3's exact recipe (SpecAugment, best standalone result) + focal loss.
+# Built on Run 3 specifically since that's the run with the clarinet-recall collapse this is meant
+# to test against, isolating focal loss's effect cleanly. See DECISIONS.md "Loss: focal over
+# class-weighted" entry for why focal (not inverse-frequency class weighting) is the primary fix
+# tried for the confirmed, family-structured confusions (cla<->sax/tru, cel<->vio, gac->pia).
+
+data:
+  dataset: irmas
+  sample_rate: 16000
+  clip_seconds: 3.0
+  n_mels: 128
+
+model:
+  name: baseline_cnn
+  num_classes: 11
+  dropout: 0.0           # matches Run 3 exactly — isolate focal loss's effect alone
+
+train:
+  batch_size: 64
+  epochs: 30
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0
+  mixed_precision: true
+  early_stopping_patience: 7
+
+augmentation:
+  specaugment: true
+  freq_mask_param: 16
+  time_mask_param: 30
+  num_freq_masks: 1
+  num_time_masks: 1
+
+loss:
+  type: focal
+  gamma: 2.0              # standard Lin et al. default — not tuned, same "test whether it helps
+                           # at all" philosophy as the other Run 2-4 hyperparameter choices
+  use_class_weights: false
+
+logging:
+  backend: tensorboard
+  log_dir: runs/
+  run_name: run6_focal_specaugment

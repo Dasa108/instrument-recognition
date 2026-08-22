@@ -12,6 +12,115 @@ New entries go at the top (most recent first).
 
 ---
 
+## Loss: focal over class-weighted (Run 6)
+
+**Decision:** Run 6 uses focal loss (`gamma=2.0`, no class weighting) as the primary fix for the
+confirmed confusion patterns, not inverse-frequency class weighting. Both are implemented
+(`src/losses.py`, config-selectable via a new `loss:` block) but class-weighting is held as an
+optional control (`configs/class_weighted.yaml`), not the first thing tried.
+
+**Context:** Confusion matrices across Runs 1-4 show the same family-structured mix-ups every run
+regardless of regularization approach — clarinet↔sax/trumpet, cello↔violin, acoustic-guitar→piano
+— persisting even in Run 2 (zero overfitting). This looks like a genuine feature-discriminability
+limit, not something more regularization fixes. Checked actual training-split class counts via
+`build_split()`: 306 (cel, rarest) to 622 (voi) — only ~2x spread, mild imbalance.
+
+**Alternatives considered:**
+- **Class weighting (inverse frequency)** — the standard fix for imbalanced classes. Checked
+  whether it's actually well-motivated here: the worst confusions (gac↔pia: both classes
+  *above*-median frequency; cla↔sax/tru: all mid-pack) involve classes that aren't rare relative
+  to each other. Only cel↔vio has any plausible frequency angle (cel is the single rarest class),
+  and even that confusion *grew* across Runs 1-4 regardless of which regularization was applied —
+  arguing for a feature problem, not a sampling-frequency problem. Concluded: not well-motivated
+  as the *primary* fix, but cheap enough to keep as an empirical control.
+
+**Why this one:** focal loss upweights low-confidence/hard predictions during training, independent
+of class frequency — directly targets "the model confidently confuses specific pairs," which is
+what was actually observed, rather than "rare classes get too few gradient updates," which wasn't.
+Built on Run 3's exact recipe (`configs/focal.yaml`) since that's the run with the clarinet-recall
+collapse this is meant to fix, isolating focal loss's effect against it cleanly.
+
+**Trade-offs / risks accepted:** `gamma=2.0` is the standard Lin et al. default, not tuned for this
+task — same "test whether it helps at all before tuning further" philosophy as Runs 2-4's
+hyperparameter choices.
+
+**Outcome:** mixed, net negative vs. Run 3. Clarinet recall — the specific problem this targeted —
+improved substantially (0.16→0.63), confirming focal loss *can* fix a targeted confusion. But it
+introduced a new, more severe collapse: organ recall hit 1.00 (0.32 precision), becoming a
+false-positive sink for 6 of the other 10 classes. Overall test accuracy 0.58/macro F1 0.56 —
+worse than Run 3 (0.63/0.60) and well below Run 5 (0.65/0.64). Early stopping triggered for the
+first time across all 6 runs (epoch 20, best was epoch 13) — this run's val curve was also the
+most volatile of any run. Not adopted; the optional class-weighted control
+(`configs/class_weighted.yaml`) was deprioritized rather than run, since Run 6's result doesn't
+change the reasoning against class-weighting as a primary fix, and focus shifted to Phase B. A
+lower `gamma` is a plausible untested follow-up if this is revisited. Full breakdown: `results.md`,
+Run 6.
+
+**Status:** Done (2026-08-22). Not adopted.
+
+---
+
+## Combined-recipe epoch budget: 60 epochs (Run 5)
+
+**Decision:** Rerun Run 4's exact recipe (weight decay + conv dropout + SpecAugment) with
+`epochs: 60` (was 30) and `early_stopping_patience: 12` (was 7), learning rate unchanged.
+
+**Context:** Run 4 underperformed both Run 2 and Run 3 individually, but its training curve was
+still slowly climbing at epoch 30, not clearly plateaued — `results.md`'s own Run 4 verdict flagged
+this as likely under-training from stacking three regularization pressures in one epoch budget,
+not evidence the combination is fundamentally counterproductive.
+
+**Alternatives considered:**
+- **80 or 100 epochs** — measured actual wall-clock across all 4 completed runs (TensorBoard
+  event-file timestamps): consistently ~87s/epoch. 60 epochs ≈ 87min, same order of magnitude as
+  prior runs; escalating straight to 80-100 without first checking whether 60 already plateaus
+  would be guessing ahead of evidence the TensorBoard curve will make obvious anyway.
+- **Also raising the learning rate** — rejected to keep this a single-variable test (more epochs,
+  and only that), matching the project's existing ablation discipline (Runs 2-4 tested each
+  technique in isolation before combining).
+
+**Why this one:** directly tests Run 4's own stated hypothesis rather than assuming it. Patience
+raised from 7→12 because a longer run may pass through a longer slow-improvement stretch before a
+genuine late gain, and patience 7 never actually triggered in the original Run 4 even under slow
+improvement — evidence patience wasn't the binding constraint there, the epoch cap was.
+
+**Trade-offs / risks accepted:** ~87 extra minutes of compute for a result that might still just
+confirm Run 4's original conclusion (combining doesn't help) rather than reverse it.
+
+**Outcome:** decisive confirmation. Best val acc 0.5272→0.6082 (same recipe, only epochs changed),
+test accuracy 55%→65%, macro F1 0.53→0.64 — the best single-model result of any run. Curve was
+still climbing at epoch 60 (not clearly plateaued), so **Run 4's original "combining doesn't help"
+conclusion was an artifact of an insufficient epoch budget, not a real interaction effect.** Full
+breakdown: `results.md`, Run 5.
+
+**Status:** Done (2026-08-22).
+
+---
+
+## Ensembling Run 2 + Run 3 (soft-vote)
+
+**Decision:** Average Run 2's and Run 3's softmax probabilities on the test set
+(`src/ensemble_evaluate.py`), no retraining.
+
+**Context:** Run 2 (stable, balanced, zero overfitting) and Run 3 (highest individual accuracy,
+but clarinet recall collapsed to 0.16) reach different failure modes on the *same* held-out test
+split — a natural candidate for complementary rather than correlated errors.
+
+**Alternatives considered:** none seriously — this is close to a free experiment (no new training,
+minutes of compute), so there was no real cost/benefit trade-off to weigh; the only question was
+whether to try it, and the answer was obviously yes given how cheap it is.
+
+**Why this one:** directly tests the complementary-errors hypothesis at near-zero cost before
+investing in anything more expensive.
+
+**Outcome:** confirmed the hypothesis — ensemble reaches 65% test accuracy / 0.62 macro F1,
+beating both individual runs (Run 3's previous-best: 63%/0.60). Clarinet recall partially recovers
+(0.16→0.22, still below Run 2's own 0.47 alone). Full breakdown: `results.md`, "Ensemble" section.
+
+**Status:** Done (2026-08-22).
+
+---
+
 ## Runs 2-4: regularization / SpecAugment / combined, isolated then combined
 
 **Decision:** Run three ablation-style experiments against Run 1's baseline, each in its own

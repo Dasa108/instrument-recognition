@@ -160,7 +160,7 @@ alongside #1/#2 given sax/violin are the weakest classes in Run 1.
 
 ---
 
-## Summary — priority order given Run 1's specific overfitting gap
+## Summary — priority order given Run 1's specific overfitting gap (superseded below)
 
 1. **Regularization** (weight decay, more dropout, early stopping) — cheap, directly targets the
    diagnosis.
@@ -168,3 +168,93 @@ alongside #1/#2 given sax/violin are the weakest classes in Run 1.
 3. **LR scheduling** + **class-weighted loss** — cheap, smooths training and helps weak classes.
 4. **Architecture changes** (aside from pooling strategy) and **transfer learning** — held in
    reserve until 1–3 are tried and we can see whether the train/val gap actually closes.
+
+---
+
+## Where things actually stand after Runs 1–6 (2026-08-22)
+
+**What happened:** #1 (regularization, Run 2) and #2 (SpecAugment, Run 3) both worked — Run 2
+closed the overfitting gap completely, Run 3 reached the highest single-technique accuracy (63%).
+Combining them (Run 4) *underperformed* both individually (55%) — but that turned out to be a red
+herring: the same recipe given twice the epoch budget (Run 5, 60 vs 30) jumped to 65%/macro F1
+0.64, the best single-model result of the project so far. **The lesson wasn't "don't combine
+techniques" — it was "combining techniques makes optimization harder, and that needs a matching
+training-time budget, not just the right hyperparameters."**
+
+**A finding this priority list didn't anticipate:** the confusion matrices across every one of
+Runs 1–5 show the *same* family-structured mix-ups — clarinet↔sax/trumpet, cello↔violin,
+acoustic-guitar→piano — regardless of which regularization approach was used, including Run 2
+which has zero overfitting. That's a signal these specific pairs are hard for the *model's
+features* to tell apart, not just a symptom of overfitting that regularization was expected to
+clean up. Two responses were tried:
+
+- **Ensembling Run 2 + Run 3** (soft-vote, no retraining) — worked: 65% accuracy, 0.62 macro F1,
+  beating both inputs. Confirms their errors were at least partly complementary.
+- **Focal loss** (Run 6, built on Run 3's recipe) — targeted the confusion pattern directly by
+  upweighting hard/low-confidence predictions. Partially worked (clarinet recall 0.16→0.63) but
+  manufactured a *new*, worse collapse (organ recall hit 1.00, absorbing errors from 6 other
+  classes) — net worse than Run 3. The class-confusion diagnosis was right; this particular fix
+  overcorrected. A lower `gamma` is a plausible untested follow-up, not pursued yet.
+
+**Current best: Run 5** (`checkpoints/run5_combined_extended.pt`, 65% accuracy, 0.64 macro F1, no
+class F1 below 0.45 — the most balanced result of any run). Full numbers: `results.md`.
+
+### Is this "confidently usable"? A realistic ceiling check
+
+Before reaching for something bigger, it's worth asking whether 65% is actually underperforming or
+close to what's achievable given the data. IRMAS predominant-instrument literature context:
+from-scratch CNN baselines commonly land 50–65%; more sophisticated systems (pretrained embeddings,
+ensembles) often cap out around 65–80%, partly because the task itself is inherently ambiguous for
+some clips (real mixes often have more than one audible instrument; "predominant" was a judgment
+call by the original annotators, not an objective ground truth) and some instrument pairs are
+acoustically very similar regardless of model quality (violin/cello, sax/clarinet/flute,
+acoustic/electric guitar). Run 5's 65% is a reasonable, not obviously broken, result for the task's
+actual difficulty — but "the model's own features may be near a ceiling" is exactly the case for
+trying features learned from a much larger, more general audio corpus than IRMAS provides.
+
+### Should we use a transformer? (asked directly)
+
+**Not from scratch.** Transformers lack a CNN's built-in inductive biases (translation invariance,
+locality) — well-documented in the ViT/AST literature that transformers underperform CNNs when
+trained from scratch on small datasets, and only pull ahead once pretrained on a large corpus (e.g.
+AudioSet, ~2M clips) or given far more data than IRMAS's ~5,300 training clips. Training a
+transformer from scratch here would very likely perform *worse* than the current CNN, not better.
+
+**The version that could help: a *pretrained* transformer.** That's functionally the same move as
+pretrained CNN embeddings (PANNs) — the lever is *pretraining*, not the architecture family. This
+project already flagged pretrained embeddings (PANNs/YAMNet/VGGish) as the escalation path
+(`spec.md` §5) — a pretrained transformer (AST, AudioSet-pretrained) is one more concrete option
+within that same category, not a different strategy.
+
+**Verdict:** transformer-from-scratch — no. Pretrained transformer or pretrained CNN embedding —
+yes, this is the strongest remaining lever, and Phase B (below) does both, compared directly.
+
+---
+
+## Phase A — cheap tier, done (2026-08-22)
+
+Recap (see `results.md`/`DECISIONS.md` for full numbers):
+
+1. **Ensemble Run 2 + Run 3** — worked, no retraining, 65%/0.62.
+2. **Rerun combined recipe with more epochs** (Run 5) — worked decisively, 65%/0.64, best result.
+3. **Focal loss** (Run 6) — mixed/net-negative, fixed clarinet but caused a worse organ collapse.
+
+## Phase B — pretrained embeddings (next)
+
+Two options, both being tried and compared directly (not just one chosen):
+
+- **PANNs (CNN14, AudioSet-pretrained)** — closer to the current architecture family, lighter/
+  faster to fine-tune. Real integration note: expects raw waveform at 32kHz with its own internal
+  log-mel (64 bins) — this project's existing `audio_to_logmel.py` output (128 bins, 16kHz) isn't
+  compatible input, needs a parallel raw-waveform data path.
+- **AST (Audio Spectrogram Transformer, AudioSet-pretrained)** — the literal "pretrained
+  transformer" answer. Better input match than PANNs (16kHz, 128 mel bins — same as this project
+  already), but its pretrained positional embeddings are sized for 10s clips (1024 frames) vs. this
+  project's 3s clips (~300 frames) — a real shape mismatch, handled first via loop-padding (MVP,
+  keeps pretrained embeddings untouched) rather than embedding interpolation (more correct, more
+  implementation risk, held as a follow-up).
+
+Both frozen-backbone first (train only a small new classifier head — lower risk of re-introducing
+overfitting on this same small dataset, much cheaper on the 6GB RTX 3050), full fine-tuning only as
+a follow-up if frozen underperforms. Both evaluated identically to Runs 1-6 (same held-out test
+split, same metrics) so results land in `results.md`'s existing comparison table directly.

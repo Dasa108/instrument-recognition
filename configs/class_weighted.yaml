@@ -1,0 +1,41 @@
+# Optional control (results.md) — same recipe as configs/focal.yaml but with plain inverse-
+# frequency class weighting instead of focal loss. Lower priority than Run 6 (focal) — this exists
+# to empirically confirm the reasoning in DECISIONS.md "Loss: focal over class-weighted": training
+# class counts are only ~2x apart (306-622), and the worst confusions involve classes that aren't
+# rare relative to each other, so this is expected to help little/none on gac/pia and cla/sax/tru
+# specifically, with maybe some effect on cel (the single rarest class). Run only if time permits.
+
+data:
+  dataset: irmas
+  sample_rate: 16000
+  clip_seconds: 3.0
+  n_mels: 128
+
+model:
+  name: baseline_cnn
+  num_classes: 11
+  dropout: 0.0
+
+train:
+  batch_size: 64
+  epochs: 30
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0
+  mixed_precision: true
+  early_stopping_patience: 7
+
+augmentation:
+  specaugment: true
+  freq_mask_param: 16
+  time_mask_param: 30
+  num_freq_masks: 1
+  num_time_masks: 1
+
+loss:
+  type: class_weighted
+
+logging:
+  backend: tensorboard
+  log_dir: runs/
+  run_name: run6b_class_weighted_specaugment

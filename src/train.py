@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from src.datasets.irmas_dataset import IRMAS_CLASSES, IRMASDataset
+from src.losses import FocalLoss, compute_class_weights
 from src.models.cnn import BaselineCNN
 from src.preprocessing.audio_to_logmel import spec_augment
 
@@ -114,7 +115,26 @@ def main(config_path: str = "configs/base.yaml") -> None:
         num_classes=cfg["model"]["num_classes"],
         dropout=cfg["model"].get("dropout", 0.0),
     ).to(device)
-    criterion = nn.CrossEntropyLoss()
+
+    # Loss dispatch — see src/losses.py and DECISIONS.md "Loss: focal over class-weighted" entry.
+    # Absent `loss:` block -> today's plain cross-entropy, unchanged (base/reg/specaug/combined
+    # configs need no edits).
+    loss_cfg = cfg.get("loss", {"type": "cross_entropy"})
+    loss_type = loss_cfg.get("type", "cross_entropy")
+    if loss_type == "cross_entropy":
+        criterion = nn.CrossEntropyLoss()
+    elif loss_type == "class_weighted":
+        weights = compute_class_weights(train_ds, cfg["model"]["num_classes"]).to(device)
+        criterion = nn.CrossEntropyLoss(weight=weights)
+    elif loss_type == "focal":
+        alpha = (
+            compute_class_weights(train_ds, cfg["model"]["num_classes"]).to(device)
+            if loss_cfg.get("use_class_weights", False) else None
+        )
+        criterion = FocalLoss(gamma=loss_cfg.get("gamma", 2.0), alpha=alpha).to(device)
+    else:
+        raise ValueError(f"unknown loss.type: {loss_type!r}")
+
     optimizer = torch.optim.Adam(
         model.parameters(), lr=cfg["train"]["lr"],
         weight_decay=cfg["train"].get("weight_decay", 0.0),
