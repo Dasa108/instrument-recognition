@@ -253,6 +253,16 @@ Both tried, both frozen-backbone (only a small new head trained):
   mismatch (pretrained for 10s clips, ours are 3s) handled via loop-padding to ~11s before feature
   extraction — worked cleanly, no embedding-interpolation follow-up needed.
 
+**Both behaved almost nothing like the Phase A runs.** Every from-scratch run needed 15-30+ epochs
+to find its footing; PANNs and AST both hit ~70-73% val accuracy in the *first* epoch, then
+climbed gently and plateaued with no oscillation at all — no equivalent of Run 1's val-accuracy
+crashes or Run 6's organ-collapse instability. Makes sense mechanically: only a small linear head
+(~22K params) was actually training, a far easier optimization problem than tuning a full ~0.43M-
+param CNN. AST converged even faster than PANNs (plateaued by epoch 8 vs. epoch 14) — the smoothest
+curve of any run in the project. The two aren't identical under the hood, though: AST was notably
+stronger on organ/voice, PANNs slightly stronger on clarinet/trumpet, and AST's single worst weak
+spot was cello↔violin confusion (its largest off-diagonal confusion-matrix entry of any run).
+
 **Result: both tied, ~13 points ahead of the best from-scratch attempt (Run 5, 65%).** Neither
 architecture family won — pretraining is what mattered, exactly as predicted above before either
 was run. Full curves/confusion matrices/verdicts: `results.md`, Runs 7-8.
@@ -263,3 +273,33 @@ fixable regularization/architecture problem — Phase A's best efforts (ensembli
 time) closed real gaps but couldn't reach what one epoch of a *pretrained* model's frozen features
 already achieved. "Confidently usable" is a judgment call, but 78% with no class below 0.60 F1 is a
 different tier of result than anything Phase A produced.
+
+---
+
+## Summary — full journey, Run 1 through Run 8
+
+**How the original priority list (top of this file) actually held up**, checked against what was
+tried: #1 (regularization) and #2 (SpecAugment) were correctly ranked highest — both worked,
+became Runs 2 and 3. #4 (transfer learning) was correctly identified as the strongest remaining
+lever, appropriately held in reserve until cheaper options were tried first — it ended up being
+*the* decisive move (Phase B). #3 (LR scheduling, class-weighted loss) was never actually tried —
+overtaken by better-motivated options as evidence accumulated (extended training instead of LR
+scheduling for Run 5; focal loss instead of class-weighting for Run 6, since the confusion pattern
+turned out not to be frequency-driven — see `DECISIONS.md`). Architecture changes (section 4) were
+never revisited — Phase A's gains came from training dynamics and data, not architecture size,
+and Phase B changed the model entirely rather than tweaking `BaselineCNN`.
+
+**The throughline connecting every run's behavior, from-scratch or pretrained:** every single run
+in the project — all 6 Phase A configs, the ensemble, and both Phase B models — shows the same
+family-structured confusions (clarinet↔sax/trumpet, cello↔violin, guitar→piano) in some form.
+Regularization, augmentation, more training time, and ensembling all *reduced* these; pretraining
+reduced them the most (roughly a third the magnitude of the worst from-scratch runs) but never
+eliminated them. That consistency — the same specific pairs, every time, regardless of technique —
+is itself evidence some of these pairs are genuinely acoustically similar, not simply an artifact
+of too little data or an undertrained model.
+
+**Final state:** best result is Run 7 (PANNs) / Run 8 (AST), tied at 78% accuracy / 0.76 macro F1
+— see `results.md` for the full run-by-run numbers and `EXPERIMENTS.md` for a behavioral summary
+of each run's training curve. Open, not yet decided (per `HANDOFF.md`): accept this as Phase 1's
+result and move to Phase 2 (multi-label), or push further (fine-tuning instead of frozen-backbone,
+AST embedding interpolation, or ensembling Run 7 + Run 8 the way Run 2 + Run 3 were ensembled).
