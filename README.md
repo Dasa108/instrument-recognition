@@ -18,7 +18,9 @@ full story, not just the code.
 - **`notes/improv_cnn.md`** — the model-improvement menu and how the from-scratch CNN was iterated
   toward, then surpassed by, pretrained embeddings.
 - **`REPO_GUIDE.md`** — what every folder and file in this repo is for, including the gitignored
-  ones (data, checkpoints, logs).
+  ones (data, checkpoints, logs), plus a recommended reading order for `src/`.
+- **`notes/PROJECT_QUIZ.md`** — comprehension quiz on the whole project (questions, answers, full
+  explanations) — a study/revision reference, not just a transcript.
 
 ## Layout
 
