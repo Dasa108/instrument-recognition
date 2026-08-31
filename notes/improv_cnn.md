@@ -202,15 +202,58 @@ class F1 below 0.45 — the most balanced result of any run). Full numbers: `res
 ### Is this "confidently usable"? A realistic ceiling check
 
 Before reaching for something bigger, it's worth asking whether 65% is actually underperforming or
-close to what's achievable given the data. IRMAS predominant-instrument literature context:
-from-scratch CNN baselines commonly land 50–65%; more sophisticated systems (pretrained embeddings,
-ensembles) often cap out around 65–80%, partly because the task itself is inherently ambiguous for
-some clips (real mixes often have more than one audible instrument; "predominant" was a judgment
-call by the original annotators, not an objective ground truth) and some instrument pairs are
-acoustically very similar regardless of model quality (violin/cello, sax/clarinet/flute,
+close to what's achievable given the data. Two things make this task inherently harder than plain
+accuracy suggests: real mixes often have more than one audible instrument, and "predominant" was a
+judgment call by the original annotators, not an objective ground truth — plus some instrument
+pairs are acoustically very similar regardless of model quality (violin/cello, sax/clarinet/flute,
 acoustic/electric guitar). Run 5's 65% is a reasonable, not obviously broken, result for the task's
 actual difficulty — but "the model's own features may be near a ceiling" is exactly the case for
-trying features learned from a much larger, more general audio corpus than IRMAS provides.
+trying features learned from a much larger, more general audio corpus than IRMAS provides. (See
+the next section for verified published numbers, rather than the general impression above.)
+
+### External benchmark comparison — how does this stack up against published IRMAS results?
+
+*(Added 2026-09-01, after the student asked directly how our numbers compare to the wider field —
+verified against actual papers, not recalled from general impression.)*
+
+**Published results, both evaluated on IRMAS's official Testing set (2,874 clips):**
+
+| System | Micro F1 | Macro F1 |
+|---|---:|---:|
+| Han et al. 2017 — the standard CNN baseline this task is measured against | 0.619 | 0.513 |
+| Cross-attentive CNN, Dec 2025 — current published SOTA for this task, 0.878M params | 0.64 | 0.57 |
+
+**These numbers are not directly comparable to our 78% test accuracy / 0.76 macro F1** (Runs 7-8) —
+not because of model quality, but because the *task itself* is measured differently in three ways:
+
+1. **Ground truth is a set, not a label.** IRMAS's official Testing clips are annotated with *all*
+   predominant instruments present (often 2-3) — published systems do multi-label detection
+   (independent sigmoid + per-class threshold), not single-label classification (softmax + argmax,
+   what we did throughout Phase 1).
+2. **Genuinely polyphonic, uncurated recordings.** The Testing set is real songs, not clips
+   selected for having one obvious dominant instrument — which is exactly why `DECISIONS.md`'s
+   "IRMAS download scope" entry deliberately kept it out of Phase 1's evaluation in the first
+   place. Our test split was carved from the Training data instead, which *was* curated that way.
+3. **Window-aggregation.** Testing clips run 5-20s; published systems predict per-window and then
+   combine across a clip's windows before scoring — a step our fixed-3s-clip evaluation never
+   needed.
+
+Read correctly: our 78% is a real result on a real, if easier-by-design, benchmark. The
+literature's ~0.51-0.64 macro F1 is measuring a genuinely harder task (detect *every* instrument in
+a real mix, not name the one obvious one). Neither number "beats" the other — a fair head-to-head
+would mean re-evaluating our trained models against the official Testing set with a proper
+multi-label adaptation, which is untried and doubles as the natural on-ramp into Phase 2.
+
+**Where the frontier actually is, beyond PANNs/AST:** both are themselves no longer cutting-edge —
+PANNs is from 2019 (~80M params), AST from 2021 (~86M params). Current general-purpose audio
+foundation models are larger-scale: **BEATs** (Microsoft, masked acoustic-token pretraining, up to
+300M params) and **Dasheng** (1.2B params, 272,356 hours of pretraining audio). No IRMAS-specific
+published numbers were found for either, so no clean head-to-head claim can be made here — but if
+further gains were wanted beyond Run 7/8, one of these is the natural next escalation, on the same
+"bigger pretraining corpus → better features" logic that made PANNs/AST beat the from-scratch CNN
+in the first place.
+
+Sources: [Han et al. 2017](https://arxiv.org/pdf/1605.09507), [cross-attentive CNN (2025)](https://doi.org/10.3390/technologies14010003), [PANNs](https://arxiv.org/pdf/1912.10211), [Dasheng](https://arxiv.org/pdf/2406.06992), [pretrained-embedding sensitivity study](https://arxiv.org/pdf/2501.15900).
 
 ### Should we use a transformer? (asked directly)
 

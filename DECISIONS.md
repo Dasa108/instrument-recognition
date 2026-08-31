@@ -394,6 +394,14 @@ is not a constraint (827GB free).
 **Trade-offs / risks accepted:** ~7.8GB of Testing data sits unused in `data/raw/` until Phase 2 or
 a bonus eval actually touches it.
 
+**External validation (2026-09-01):** checked this reasoning against the actual IRMAS literature
+(Han et al. 2017, and current published SOTA as of Dec 2025) — confirms the Testing set really is
+evaluated as multi-label detection with window-aggregation over real polyphonic 5-20s recordings,
+not a single-label test set our Phase 1 pipeline could have used directly. This is also why our
+78% test accuracy (Runs 7-8) isn't directly comparable to the ~0.51-0.64 macro F1 published on that
+set — different evaluation protocols, not a quality gap. Full comparison, with sources:
+`notes/improv_cnn.md`, "External benchmark comparison" section.
+
 **Status:** Confirmed (2026-08-21).
 
 ---
