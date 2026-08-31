@@ -8,6 +8,56 @@ repo (data, checkpoints, logs) exists on disk but deliberately isn't in version 
 
 ---
 
+## Study Pathway — recommended order for reading `src/`
+
+The file-listing tables below are organized by directory (for lookup); this section is organized
+by **dependency and concept order** (for learning) — each step assumes you understand the ones
+before it, and roughly follows how data actually flows through the pipeline rather than
+alphabetical or import order.
+
+1. **`src/datasets/irmas_dataset.py`** — start here. `IRMAS_CLASSES` (the 11 labels, in the fixed
+   order used everywhere) and `build_split()` (the song-grouped train/val/test split). No
+   dependencies on any other `src/` file — this is the data itself, before any ML machinery.
+2. **`src/preprocessing/audio_to_logmel.py`** — how a raw audio file becomes model input:
+   `load_audio` → `window` → `to_logmel`, plus `spec_augment()`. Read `process_clip()` last —
+   it's just those three composed. This is the piece worth actually running by hand (e.g. in a
+   Python shell) and plotting the output, the way `notebooks/dataset_visualisation/` did.
+3. **`src/models/cnn.py`** — `BaselineCNN`, the simplest model in the repo (~60 lines, no external
+   pretrained weights, no exotic ops) — the right place to get comfortable reading a PyTorch
+   `nn.Module` before the more involved wrappers in step 6.
+4. **`src/losses.py`** — small and self-contained (`FocalLoss`, `compute_class_weights`). Worth
+   reading before `train.py` since `train.py` references both.
+5. **`src/train.py`** — the training loop. This is where steps 1-4 actually get used together:
+   dataset → preprocessing (inside the Dataset's `__getitem__`) → model → loss → optimizer →
+   checkpointing. The single most "everything connects here" file in the repo — expect to
+   cross-reference the earlier files while reading it.
+6. **`src/evaluate.py`**, then **`src/ensemble_evaluate.py`** — how a trained checkpoint becomes
+   the numbers in `results.md`. `ensemble_evaluate.py` is a small, direct extension of
+   `evaluate.py`'s pattern (multiple models instead of one, softmax-averaged) — read them back to
+   back.
+7. **`src/datasets/irmas_waveform_dataset.py`** — the raw-waveform counterpart to step 1's
+   `irmas_dataset.py`, needed once PANNs/AST enter the picture (they compute their own spectrogram
+   features, not this project's log-mel from step 2).
+8. **`src/models/panns_classifier.py`** and **`src/models/ast_classifier.py`** — the pretrained
+   wrappers. Best read *after* step 3, not before — they're meaningfully more involved (external
+   checkpoint downloads, a second preprocessing convention each, the AST loop-padding workaround)
+   and make more sense once `BaselineCNN` has set the baseline for "what does a model class in
+   this repo normally look like."
+9. **`src/models/registry.py`** — the dispatch layer (`build_model`/`build_dataset`/
+   `build_collate_fn`/`load_checkpoint`) tying every model type together by `model.name`. Read
+   this *last* among the model files — it only makes sense once you know why three different
+   model types with three different input pipelines exist to dispatch between.
+10. **`src/predict.py`** — the capstone. Exercises the registry, both preprocessing paths, and all
+    three model types in one script, on real arbitrary audio rather than pre-split IRMAS clips.
+    Reading this after everything above should feel like assembling pieces you already recognize,
+    not learning new concepts.
+
+Not in the numbered path: **`src/datasets/download_irmas.py`** is self-contained (download +
+verify + extract, no ML logic) and can be read independently at any point — it's the literal first
+step of the pipeline chronologically, but doesn't teach anything the modeling code above needs.
+
+---
+
 ## Root-level documentation
 
 | File | Purpose |
