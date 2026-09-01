@@ -129,3 +129,120 @@ how it was pretrained. Feeding it our own log-mel output (16kHz, 128 bins) inste
 error — it would silently compute nonsense on data shaped nothing like what it expects. That's
 exactly why `IRMASWaveformDataset` exists as a separate class: it hands PANNs (and AST) raw audio
 at the right sample rate, skipping `audio_to_logmel.py` entirely.
+
+---
+
+## Round 3 (2026-09-01) — 1/4 correct, with a follow-up round on Q4
+
+### Q1. AST's pretrained positional embeddings are sized for 1024 time frames (~10.24s clips). Our IRMAS clips are ~3s (~300 frames). How did we handle this mismatch?
+- **A. Loop-padded (repeated) the waveform to ~11s before feature extraction** ✅ *(correct)*
+- B. Interpolated the positional embedding grid down to ~300 frames
+- C. Truncated AST's positional embeddings to only use the first 300
+- D. Let the feature extractor zero-pad the clip with silence to reach 1024 frames *(answered — incorrect)*
+
+**Explanation:** Option D describes AST's *own default* behavior for short input — i.e. what
+happens if nothing special is done. We deliberately avoided relying on that default: silence-
+padding would leave AST looking at a clip that's ~70% dead air, which doesn't resemble its real
+AudioSet pretraining (real 10-second clips, not 3 seconds of music plus 7 seconds of silence).
+Loop-padding — repeating the clip's real audio to fill the expected duration — gives AST actual
+repeated signal instead, a closer match to what it's seen before, even if not perfect.
+Interpolating the position embeddings (B) is the more "correct" alternative in principle, but was
+deliberately not attempted — more implementation risk, held as a follow-up only if the simpler fix
+proved insufficient (it didn't — Run 8 reached 78%). See `DECISIONS.md`, "AST input-length
+mismatch" entry.
+
+### Q2. What did the "mixed_precision: false" bug actually cause, before it was fixed?
+- **A. Setting it to false didn't actually disable autocast at all** ✅ *(correct answer — student said "no idea," full explanation given)*
+- B. It caused every model to train more slowly than necessary
+- C. It had no effect at all — the flag worked as intended
+- D. It caused checkpoints to save with incorrect config metadata
+
+**Explanation (full, given after the question):** "Mixed precision" means running parts of
+training in 16-bit floating point instead of 32-bit — faster, less memory, since GPUs do fp16 math
+quicker. Normally safe, but some operations (like PANNs' internal Fourier-transform-based
+spectrogram computation) are numerically fragile in fp16 and can produce `NaN` garbage. `train.py`'s
+`mixed_precision: true/false` config flag was meant to control this, but the code that decided
+whether autocast actually ran was written as `enabled=(scaler is not None)` — and `scaler` (the
+object managing fp16 gradient scaling) is *always* constructed regardless of the flag; only its own
+internal "am I scaling gradients" state respected the flag. So autocast stayed on no matter what
+the config said. **Zero effect on Runs 1-6** (all had `mixed_precision: true` anyway — the bug
+happened to match what was already wanted). Only became a real problem for `configs/panns.yaml`,
+which genuinely needed fp16 off — caught via the PANNs smoke test producing NaN loss from epoch 1.
+Fixed by passing an explicit `use_amp` boolean through instead of inferring it from an object that
+always exists (`DECISIONS.md`, "Bug fix: mixed_precision: false" entry).
+
+### Q3. The Run 2+3 ensemble beat both individual models. How does `ensemble_evaluate.py` actually combine their predictions?
+- **A. Averages the two models' softmax probabilities, then takes the argmax** ✅ *(correct)*
+- B. Picks whichever single model has higher confidence for that prediction
+- C. Retrains a new small model on both models' outputs
+- D. Requires both models to agree; abstains if they disagree
+
+**Explanation:** Each model outputs a probability per class (via softmax); `ensemble_predict()`
+stacks both models' probability vectors and takes the mean, then argmaxes the averaged vector.
+Simple soft-voting — no retraining, no meta-learner, no abstention logic.
+
+### Q4. Which command would exactly reproduce Run 3 (SpecAugment) from scratch?
+- **A. `python -m src.train --config configs/specaug.yaml`** ✅ *(correct answer — student answered `--augment`, which doesn't exist)*
+- B. `python -m src.train --config configs/base.yaml --augment`
+- C. `python -m src.predict --checkpoint checkpoints/run3_specaugment.pt`
+- D. `python -m src.evaluate --config configs/specaug.yaml`
+
+**Explanation:** `train.py`'s entire CLI is one argument, `--config`. There is no `--augment` flag
+or any other per-setting flag — every experimental variable (regularization, SpecAugment, focal
+loss, which model architecture) lives inside the YAML file, not on the command line. This was
+significant enough to warrant its own discussion — see the follow-up round below.
+
+### Follow-up (same session) — testing the config-file concept directly
+
+**Q.** You want Run 3's exact recipe but with `batch_size: 32` instead of 64. What's the correct
+way to do this?
+- A. `python -m src.train --config configs/specaug.yaml --batch-size 32` — no such flag exists
+- B. Edit `configs/specaug.yaml` directly, then run as normal *(answered — incorrect)*
+- **C. Create a new YAML file (e.g. `configs/specaug_bs32.yaml`), change only `batch_size`, run against that** ✅ *(correct)*
+- D. Set a `BATCH_SIZE=32` environment variable — no such mechanism exists
+
+**Explanation:** B correctly avoids the CLI-flag and environment-variable traps (real progress —
+the core "config file, not flags" concept had landed), but is still wrong for a more subtle reason:
+`configs/specaug.yaml` isn't just "the SpecAugment settings" — it's the permanent record of *what
+Run 3 actually used*, already run and logged in `results.md`. Editing it in place means the file no
+longer matches the result it's supposed to document. `configs/base.yaml`'s own header comment says
+this explicitly: *"Kept as-is for reproducibility; new experiments are separate config files."*
+This is exactly why `configs/combined_extended.yaml` exists as its own file rather than
+`combined.yaml` being edited when Run 5 wanted the same recipe with more epochs.
+
+---
+
+## Round 4 (2026-09-01) — 3/3 correct
+
+### Q1. The same family-structured confusions (clarinet↔sax/trumpet, cello↔violin, guitar→piano) showed up in every single run — including Run 2, which had zero overfitting. What did that tell us?
+- **A. Some instrument pairs are genuinely hard for the model's features to tell apart** ✅ *(correct)*
+- B. The song-grouped split was leaking data between train and test
+- C. The confusion matrix code had a bug
+- D. Those classes just had too few training examples
+
+**Explanation:** If overfitting were the whole story, a well-regularized model (Run 2, ~0
+train/val gap) should tell these pairs apart just fine — it doesn't, which points to a genuine
+feature-discriminability limit rather than a symptom overfitting-management techniques were ever
+going to fix. This reasoning directly motivated trying ensembling and focal loss in Phase A, and
+was confirmed further when even the pretrained models (Runs 7-8) still showed the same pairs,
+just at reduced magnitude.
+
+### Q2. What conda environment do you need to activate before running anything in this project?
+- **A. `Sound`** ✅ *(correct)*
+- B. `instrument-recognition`
+- C. `base`
+- D. `irmas-env`
+
+**Explanation:** `conda activate Sound` — Python 3.13.15, every dependency pinned in
+`requirements.txt` (`DECISIONS.md`, "Python version"/"Environment" entries).
+
+### Q3. Per `REPO_GUIDE.md`'s recommended study order, which should you read FIRST when learning this codebase?
+- **A. `src/datasets/irmas_dataset.py`** ✅ *(correct)*
+- B. `src/models/registry.py`
+- C. `src/train.py`
+- D. `src/predict.py`
+
+**Explanation:** `irmas_dataset.py` has no dependency on any other `src/` file — it's the data and
+the split logic, before any ML machinery touches it. `registry.py` (B) is explicitly placed *last*
+among the model files in the study path, since it only makes sense once you already know why three
+different model types exist to dispatch between.
