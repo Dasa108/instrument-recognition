@@ -1,0 +1,34 @@
+# Phase 2, Run 1 — BaselineCNN (from scratch) on IRMAS's Testing set, multi-label.
+# First Phase 2 result — deliberately mirrors Phase 1's Run 1 (from-scratch baseline first,
+# pretrained-embedding upgrade as a later, explicit improvement round rather than jumping
+# straight there). See DECISIONS.md, "Phase 2 dataset: IRMAS Testing set" entry.
+#
+# Model outputs raw logits regardless of task (see src/models/cnn.py) — same BaselineCNN class as
+# Phase 1, unchanged. What differs for Phase 2 is entirely in src/train_multilabel.py: BCE loss
+# instead of cross-entropy, multi-hot labels instead of a single class index, micro/macro F1
+# instead of accuracy.
+
+data:
+  dataset: irmas_testing
+  sample_rate: 16000
+  clip_seconds: 3.0
+  n_mels: 128
+
+model:
+  name: baseline_cnn
+  num_classes: 11
+  dropout: 0.0
+
+train:
+  batch_size: 64
+  epochs: 30
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0
+  mixed_precision: true
+  early_stopping_patience: 7
+
+logging:
+  backend: tensorboard
+  log_dir: runs/
+  run_name: phase2_run1_baseline

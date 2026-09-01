@@ -12,6 +12,53 @@ New entries go at the top (most recent first).
 
 ---
 
+## Phase 2 dataset: IRMAS Testing set (not OpenMIC-2018/Slakh2100)
+
+**Decision:** Phase 2 (multi-label instrument detection) uses IRMAS's own Testing set — 2,874
+clips, already downloaded — instead of the two alternatives `spec.md` §3 originally scoped
+(OpenMIC-2018, Slakh2100).
+
+**Context:** IRMAS's Testing set was downloaded back in Phase 1 (`DECISIONS.md`, "IRMAS download
+scope" entry) specifically because it's genuinely multi-labeled and was earmarked as "the natural
+entry point" for Phase 2 throughout `HANDOFF.md`. It sat unused through all of Phase 1.
+
+**Alternatives considered:**
+- **OpenMIC-2018** — `spec.md`'s originally-scoped primary option. Larger (~20k clips), broader
+  coverage (20 classes vs. IRMAS's 11), but: needs a new multi-GB download; a different class
+  taxonomy means Phase 1's 11-class models don't transfer directly; and it's *weakly* labeled
+  (only a subset of the 20 classes confirmed per clip, the rest "unknown") — real added complexity
+  (masked-loss handling) beyond what's needed to just get Phase 2 working.
+- **Slakh2100** — large-scale with perfect synthesized labels, but MIDI-rendered, not real
+  recordings — the same domain-gap concern that ruled it out for Phase 1 (`DECISIONS.md`, "Phase 1
+  dataset: IRMAS" entry) applies identically here.
+
+**Why this one:** zero new download cost (already on disk, verified in Phase 1). Same 11-class
+taxonomy as every Phase 1 model — no remapping needed, and Phase 1's trained backbones
+(PANNs/AST) stay directly relevant as a future upgrade path rather than needing to be rebuilt for
+a different label space. Real recordings, consistent with the reasoning that picked IRMAS over
+synthesized alternatives in the first place.
+
+**Verified directly before committing to this (not assumed):** read IRMAS's own README bundled
+with the Testing data — confirms one label file per clip (`<name>.txt`, one 3-letter code per
+line, "more than one instrument may be annotated in each excerpt"), same 11-instrument taxonomy,
+and clips are excerpts of larger songs with the same numbered-suffix naming convention as Training
+data — meaning song-grouped splitting (`build_multilabel_split()`, mirroring Phase 1's
+`build_split()`) is just as necessary here to avoid leakage. Confirmed via the real split: 2,294
+train / 293 val / 287 test clips (song-grouped, zero group overlap across splits), ~55-58% of
+clips genuinely multi-label — a real, different task from Phase 1's single-label framing, not a
+relabeled copy of it.
+
+**Trade-offs / risks accepted:** smaller scale than OpenMIC-2018 (2,874 clips vs. ~20k) — partially
+offset by treating each 3s window of a clip as its own training example (clips are 5-20s, so this
+yields more effective training examples than the raw clip count suggests). Real class imbalance
+in the resulting split (train per-class positive counts range from 54 (`cla`) to 817 (`voi`), a
+~15x spread — much wider than Phase 1's ~2x spread) — a genuine consideration for loss/threshold
+tuning if Phase 2's baseline underperforms on the rarer classes.
+
+**Status:** Confirmed (2026-09-01).
+
+---
+
 ## Inference script: default checkpoint is PANNs (Run 7), not AST (Run 8)
 
 **Decision:** `src/predict.py` (arbitrary-audio-file inference, `INFERENCE.md`) defaults to

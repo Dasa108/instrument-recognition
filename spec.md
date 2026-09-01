@@ -14,7 +14,9 @@ pretrained transformer (AST) — see Section 5 and Section 9. Want a prediction 
 file right now? See `INFERENCE.md`. What every file/folder in the repo is for: `REPO_GUIDE.md`.
 Full numbers, curves, and confusion matrices for all 8 training runs + 1 ensemble: `results.md`.
 Reasoning behind every non-obvious choice made along the way: `DECISIONS.md`. **Phase 2
-(multi-label) has not started** — it's the next step if this project continues.
+(multi-label) is now in progress** (started 2026-09-01) — dataset (IRMAS's own Testing set, not
+`spec.md`'s originally-scoped OpenMIC-2018/Slakh2100, see `DECISIONS.md`), split, and training/eval
+pipeline built and smoke-tested; first real run (`configs/phase2_baseline.yaml`) in progress.
 
 ## 1. Objective
 
@@ -26,8 +28,9 @@ Build a model that identifies which musical instrument(s) are present in an audi
   classification. **Status: CLOSED (2026-08-22).** Best result 78% test accuracy / 0.76 macro F1
   (Section 5, Section 9).
 - **Phase 2:** multi-label recognition on full songs — predict *all* instruments present, not
-  just the dominant one. **Status: not started.** IRMAS's Testing data (2,874 multi-labeled
-  clips, downloaded — Section 3) is the natural entry point once this begins.
+  just the dominant one. **Status: in progress (started 2026-09-01).** Uses IRMAS's own Testing
+  data (2,874 clips, downloaded in Phase 1 — Section 3), not `spec.md`'s originally-scoped
+  OpenMIC-2018/Slakh2100 — see `DECISIONS.md`, "Phase 2 dataset" entry.
 - **Out of scope (for now):** instrument *separation* (isolating each instrument's audio), genre
   classification, real-time/streaming inference.
 
@@ -37,20 +40,22 @@ Datasets for each phase: see Section 3.
 
 | Phase | Dataset | Size | Labels | Notes |
 |---|---|---|---|---|
-| 1 | IRMAS | ~9k × 3s clips | 11 instruments, single-label (predominant) | Standard benchmark, download via Zenodo |
-| 2 | OpenMIC-2018 | ~20k × 10s clips | 20 instruments, multi-label (partial) | Weak/partial supervision |
-| 2 (alt) | Slakh2100 | 2100 full songs | multi-label, synthesized (MIDI-rendered) | Larger scale, not real recordings |
+| 1 | IRMAS Training | ~9k × 3s clips | 11 instruments, single-label (predominant) | Standard benchmark, download via Zenodo |
+| 2 | IRMAS Testing | 2,874 × 5-20s clips | 11 instruments, multi-label (full) | Same download, same taxonomy as Phase 1 — see `DECISIONS.md`, "Phase 2 dataset" entry, for why this replaced the originally-scoped OpenMIC-2018/Slakh2100 below |
+| 2 (not used) | ~~OpenMIC-2018~~ | ~20k × 10s clips | 20 instruments, multi-label (partial) | Originally scoped; not used — different taxonomy, weak/partial labels, new download |
+| 2 (not used) | ~~Slakh2100~~ | 2100 full songs | multi-label, synthesized (MIDI-rendered) | Originally scoped; not used — synthesized, not real recordings |
 
-Train/val/test split: IRMAS's "Testing" files are *not* a single-label test set (multi-labeled,
-variable-length — built for a different, detection-style task) and aren't used as Phase 1's held-out
-set. Instead, val/test are carved out of the Training data itself, grouped by song, to avoid the
-same song appearing in both train and eval. See `DECISIONS.md`, "IRMAS download scope" entry.
+Train/val/test split: IRMAS's Training data (Phase 1) and Testing data (Phase 2) are each split
+independently, grouped by song, to avoid the same song appearing in both train and eval within
+that phase. See `DECISIONS.md`, "IRMAS download scope" and "Phase 2 dataset" entries.
 
-**Status: both fully downloaded and verified.** Training data (6,705 clips, `data/raw/
+**Status: both fully downloaded, verified, and split.** Training data (6,705 clips, `data/raw/
 IRMAS-TrainingData/`) and Testing data (2,874 clips, `data/raw/IRMAS-TestingData/`, all 3 parts —
-hit and fixed a real extraction bug along the way, see `DECISIONS.md`). Split logic
-(`src/datasets/irmas_dataset.py`, `build_split()`) verified to produce zero song-group overlap
-across train/val/test.
+hit and fixed a real extraction bug along the way, see `DECISIONS.md`). Phase 1 split
+(`src/datasets/irmas_dataset.py`, `build_split()`) and Phase 2 split
+(`src/datasets/irmas_multilabel_dataset.py`, `build_multilabel_split()`) both verified to produce
+zero song-group overlap across train/val/test. Phase 2's split: 2,294 train / 293 val / 287 test
+clips, ~55-58% genuinely multi-label.
 
 ## 4. Preprocessing Pipeline
 
@@ -98,7 +103,13 @@ won decisively.**
   - `src/models/registry.py` dispatches model class + Dataset variant from
     `configs/*.yaml`'s `model.name` (`baseline_cnn` / `panns_cnn14` / `ast`).
 - **Phase 2:** same backbone, swap output head to per-class sigmoid + BCE loss (multi-label).
-  **Not started.**
+  **In progress.** `BaselineCNN`/`PANNsClassifier`/`ASTClassifier` already output raw logits with
+  no softmax baked in, so the model classes needed *no changes* — only the loss
+  (`nn.BCEWithLogitsLoss` instead of cross-entropy) and prediction readout (per-class sigmoid +
+  threshold instead of argmax) differ, in a new `src/train_multilabel.py` /
+  `src/evaluate_multilabel.py` pair (kept separate from Phase 1's training loop rather than
+  branching it — see `DECISIONS.md`). First run: `configs/phase2_baseline.yaml`
+  (`BaselineCNN` from scratch, mirroring Phase 1's Run 1 before any pretrained upgrade).
 
 ## 6. Evaluation
 
@@ -108,7 +119,9 @@ won decisively.**
   test split, up from 56%/0.53 for the from-scratch baseline. Full per-run tables and confusion
   matrices: `results.md`.
 - Phase 2 (multi-label): macro-F1 and micro-F1 (primary metrics), per-class precision/recall.
-  **Not started.**
+  **Implemented** (`src/evaluate_multilabel.py`) — also reports hamming loss (fraction of
+  individual instrument-present/absent decisions that are wrong) as a supplementary metric. First
+  run's results pending.
 - Track a fixed validation set throughout; no test-set peeking until final report. **Honored** —
   the held-out `test` split was only evaluated after each run's training was complete, never used
   to pick hyperparameters (that's what `val` is for, per the song-grouped split in
@@ -178,8 +191,12 @@ instrument-recognition/
    `INFERENCE.md`. This closes the gap between "a checkpoint that scores well on a held-out test
    set" and "a model you can actually point at a file and use," which Section 1's objective
    implies but the milestones above didn't explicitly call out.
-6. ⬜ Phase 2: multi-label pipeline on OpenMIC/Slakh2100. **Not started.** IRMAS Testing data
-   (2,874 multi-labeled clips) is already downloaded and ready for this once it begins.
+6. 🟡 Phase 2: multi-label pipeline. **In progress (started 2026-09-01).** Uses IRMAS's own
+   Testing data (2,874 multi-labeled clips) instead of OpenMIC-2018/Slakh2100 — see `DECISIONS.md`,
+   "Phase 2 dataset" entry. Dataset/split/train/eval pipeline built and smoke-tested
+   (`src/datasets/irmas_multilabel_dataset.py`, `src/train_multilabel.py`,
+   `src/evaluate_multilabel.py`); first real run in progress
+   (`configs/phase2_baseline.yaml`, `BaselineCNN` from scratch).
 
 **Phase 1: CLOSED (2026-08-22).** Every milestone above is done, including a working end-to-end
 path from raw audio to prediction. What remains is genuinely optional polish, not unfinished work:

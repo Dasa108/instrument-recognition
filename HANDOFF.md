@@ -135,9 +135,23 @@ script — that closed the gap between "a checkpoint that scores well on held-ou
 model you can actually point at a file and use." Remaining options (fine-tuning instead of
 frozen-backbone, AST embedding interpolation, ensembling Run 7+8) are genuine optional polish, not
 blockers — see `spec.md` §9 for the same framing. Full map of every file/folder in the repo as of
-this closure: `REPO_GUIDE.md`. Next real step, if the project continues: **Phase 2** (multi-label,
-OpenMIC-2018 / Slakh2100) — IRMAS Testing data (fully downloaded, 2,874 multi-labeled clips)
-becomes relevant there.
+this closure: `REPO_GUIDE.md`.
+
+**Phase 2: in progress (started 2026-09-01).** Dataset decision: IRMAS's own Testing set (2,874
+clips, already downloaded), not `spec.md`'s originally-scoped OpenMIC-2018/Slakh2100 — see
+`DECISIONS.md`, "Phase 2 dataset" entry, for why. Built and smoke-tested:
+`src/datasets/irmas_multilabel_dataset.py` (song-grouped split — 2,294/293/287 train/val/test
+clips, zero leakage, ~55-58% genuinely multi-label; each clip expands into one training example
+per 3s window since IRMAS guarantees labels are constant within an excerpt — 13,852 train windows,
+much more than the raw clip count suggests), `src/train_multilabel.py` /
+`src/evaluate_multilabel.py` (BCE loss + micro/macro F1, kept as a separate pipeline from Phase 1
+rather than branching its training loop — see `DECISIONS.md`). Model classes needed no changes —
+`BaselineCNN`/`PANNsClassifier`/`ASTClassifier` already output raw logits. First real run
+(`configs/phase2_baseline.yaml`, `BaselineCNN` from scratch, mirrors Phase 1's Run 1) in progress
+as of this note — full 30-epoch budget, ~9.5 min/epoch, early stopping patience 7. Planned next
+(per the user's explicit sequencing): once this baseline result is in, extend to PANNs/AST for
+Phase 2 too (needs a raw-waveform multi-label dataset variant, not yet built) as the "improve"
+round — same Phase-A-then-Phase-B arc as Phase 1.
 
 Note (historical): `nvidia-smi` initially couldn't reach the GPU driver from within a Claude Code
 session (likely a transient sandboxing state) — confirmed the card via `lspci` at the time. It

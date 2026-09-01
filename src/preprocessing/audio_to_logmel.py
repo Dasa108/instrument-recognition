@@ -24,9 +24,20 @@ N_FFT = 400        # 25ms at 16kHz (0.025 * 16000)
 HOP_LENGTH = 160    # 10ms at 16kHz (0.01 * 16000)
 
 
-def load_audio(path: str, sample_rate: int = SAMPLE_RATE) -> np.ndarray:
-    """Load an audio file, resampled to `sample_rate` and downmixed to mono."""
-    waveform, _ = librosa.load(path, sr=sample_rate, mono=True)
+def load_audio(
+    path: str,
+    sample_rate: int = SAMPLE_RATE,
+    offset: float = 0.0,
+    duration: float | None = None,
+) -> np.ndarray:
+    """Load an audio file, resampled to `sample_rate` and downmixed to mono.
+
+    `offset`/`duration` (seconds) load only a slice of the file — added for Phase 2
+    (irmas_multilabel_dataset.py), whose clips are 5-20s and only one 3s window is needed per
+    __getitem__ call; librosa reads only the requested samples rather than the whole file first.
+    Defaults preserve the original "load the whole file" behavior for every existing caller.
+    """
+    waveform, _ = librosa.load(path, sr=sample_rate, mono=True, offset=offset, duration=duration)
     return waveform
 
 

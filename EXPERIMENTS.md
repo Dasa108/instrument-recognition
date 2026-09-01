@@ -116,7 +116,7 @@ pretraining (roughly a third the magnitude of the worst from-scratch runs) but n
 suggesting some of these instrument pairs are genuinely acoustically similar, not purely an
 artifact of too little training data.
 
-## How to reproduce or inspect a run
+## How to reproduce or inspect a Phase 1 run
 
 ```bash
 conda activate Sound
@@ -127,3 +127,24 @@ tensorboard --logdir runs/                              # browse all runs' curve
 
 Every checkpoint's `.pt` file also stores its own full config dict (`ckpt["config"]`) alongside the
 weights, so a checkpoint is self-describing even without cross-referencing this file.
+
+---
+
+## Phase 2 runs (multi-label, IRMAS Testing set)
+
+Separate scripts from Phase 1 (`src/train_multilabel.py` / `src/evaluate_multilabel.py`) — same
+model classes, different loss/metrics. See `DECISIONS.md`, "Phase 2 dataset" entry.
+
+| Run | What it tests | Config | Checkpoint | TensorBoard logs | Status |
+|---|---|---|---|---|---|
+| Phase 2, Run 1 — baseline | `BaselineCNN` from scratch, multi-label BCE loss, mirrors Phase 1's Run 1 | `configs/phase2_baseline.yaml` | `checkpoints/phase2_run1_baseline.pt` | `runs/phase2_run1_baseline/` | In progress |
+
+```bash
+python -m src.train_multilabel --config configs/phase2_baseline.yaml
+python -m src.evaluate_multilabel --checkpoint checkpoints/phase2_run1_baseline.pt
+```
+
+Dataset note: `IRMASMultilabelDataset` expands each 5-20s clip into one training example per 3s
+window (all sharing that clip's label vector, since IRMAS's own annotation guarantees labels are
+constant within an excerpt) — so effective dataset size is much larger than the 2,874 raw clips:
+13,852 train windows / 1,778 val windows from 2,294/293 clips respectively.
