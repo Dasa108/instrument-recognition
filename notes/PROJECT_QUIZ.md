@@ -246,3 +246,54 @@ just at reduced magnitude.
 the split logic, before any ML machinery touches it. `registry.py` (B) is explicitly placed *last*
 among the model files in the study path, since it only makes sense once you already know why three
 different model types exist to dispatch between.
+
+---
+
+## Round 5 (2026-09-01) — 4/4 correct — pipeline specifications and rationale
+
+### Q1. Why was audio resampled to 16kHz instead of keeping IRMAS's native 44.1kHz?
+- **A. Standard ML choice, sufficient for instrument energy range, cheaper to process** ✅ *(correct)*
+- B. IRMAS files are natively recorded at 16kHz
+- C. 16kHz avoids the Nyquist aliasing problem entirely
+- D. PyTorch's STFT function only supports 16kHz input
+
+**Explanation:** Most instrument/timbre-relevant energy sits well under 8kHz (16kHz's Nyquist
+limit), so downsampling from 44.1kHz loses little that matters for this task while roughly halving
+(or more) the data every downstream step has to process (`spec.md` §4; `notes/THEORY_NOTES.md`
+Module 2 on sampling rate / Nyquist).
+
+### Q2. Why convert to mel-scale (128 bins) instead of using raw STFT frequency bins directly?
+- **A. Mel scale approximates human pitch perception — denser at low frequencies, coarser at high** ✅ *(correct)*
+- B. Mel bins are computationally cheaper than STFT bins
+- C. Required to remove background noise
+- D. Converts stereo to mono automatically
+
+**Explanation:** Linear-Hz STFT bins are evenly spaced; human hearing isn't — we're much more
+sensitive to pitch differences at low frequencies than high ones. The mel scale warps frequency
+spacing to match that perceptual sensitivity, concentrating resolution where it's actually useful
+(`notes/THEORY_NOTES.md` Module 5).
+
+### Q3. Why LOG scale (log-mel) rather than raw mel-filterbank energies?
+- **A. Matches roughly-logarithmic loudness perception, compresses dynamic range** ✅ *(correct)*
+- B. Reduces file size on disk
+- C. Required for Conv2d to function
+- D. Same operation as the mel-scale conversion (previous question)
+
+**Explanation:** Two separate transformations happen in this pipeline: mel-scale warps the
+*frequency* axis (Q2), log scale compresses the *amplitude* axis. Without the log step, loud
+transients would dominate raw linear energy values and drown out quieter-but-informative detail;
+log compression (and human loudness perception itself) is roughly logarithmic, so this keeps both
+loud and quiet regions informative to the model (`notes/THEORY_NOTES.md` Modules 5-6).
+
+### Q4. `window()` silence-pads a leftover tail; AST's preprocessing loop-pads instead when stretching 3s to ~11s. Why the different choice?
+- **A. window()'s gap is usually small; AST's gap is huge, where silence would dominate the input** ✅ *(correct)*
+- B. Inconsistent — one is a bug
+- C. window() actually loop-pads too
+- D. AST uses window() unchanged, no special handling
+
+**Explanation:** Not a contradiction — a different tradeoff at a different scale. `window()`'s
+silence-padding covers a small leftover fragment (e.g. the last 0.5s of a 3.5s clip) where a little
+silence is a rounding error. AST's gap is ~8 extra seconds on top of a 3s clip — silence-padding
+that would mean AST spends most of its attention on dead air instead of real signal, which is why
+`loop_pad_waveform()` exists as AST-specific preprocessing rather than reusing `window()`'s
+behavior unchanged (`DECISIONS.md`, "AST input-length mismatch" entry).
