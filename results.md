@@ -8,6 +8,18 @@ here builds on and references the one before it, so reading top-to-bottom tells 
 Each entry: config summary, per-epoch curve, held-out test-set metrics (accuracy/per-class
 precision-recall-F1/confusion matrix), and a one-line verdict.
 
+## Instrument class lookup
+
+Every table below (per-class metrics, confusion matrices) uses these 3-letter codes —
+`IRMAS_CLASSES` in `src/datasets/irmas_dataset.py`, in this exact fixed order:
+
+| Code | Instrument | Code | Instrument | Code | Instrument |
+|---|---|---|---|---|---|
+| `cel` | cello | `gel` | electric guitar | `tru` | trumpet |
+| `cla` | clarinet | `org` | organ | `vio` | violin |
+| `flu` | flute | `pia` | piano | `voi` | voice |
+| `gac` | acoustic guitar | `sax` | saxophone | | |
+
 ---
 
 ## Run 1 — `baseline_cnn`, `configs/base.yaml`
