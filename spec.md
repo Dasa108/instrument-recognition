@@ -16,7 +16,8 @@ Full numbers, curves, and confusion matrices for all 8 training runs + 1 ensembl
 Reasoning behind every non-obvious choice made along the way: `DECISIONS.md`. **Phase 2
 (multi-label) is now in progress** (started 2026-09-01) — dataset (IRMAS's own Testing set, not
 `spec.md`'s originally-scoped OpenMIC-2018/Slakh2100, see `DECISIONS.md`), split, and training/eval
-pipeline built and smoke-tested; first real run (`configs/phase2_baseline.yaml`) in progress.
+pipeline built. First run done: micro-F1 0.57 / macro-F1 0.22, same overfitting story as Phase 1's
+Run 1, plus a real split-stratification gap found (`results.md`, Phase 2 Run 1).
 
 ## 1. Objective
 
@@ -193,10 +194,12 @@ instrument-recognition/
    implies but the milestones above didn't explicitly call out.
 6. 🟡 Phase 2: multi-label pipeline. **In progress (started 2026-09-01).** Uses IRMAS's own
    Testing data (2,874 multi-labeled clips) instead of OpenMIC-2018/Slakh2100 — see `DECISIONS.md`,
-   "Phase 2 dataset" entry. Dataset/split/train/eval pipeline built and smoke-tested
-   (`src/datasets/irmas_multilabel_dataset.py`, `src/train_multilabel.py`,
-   `src/evaluate_multilabel.py`); first real run in progress
-   (`configs/phase2_baseline.yaml`, `BaselineCNN` from scratch).
+   "Phase 2 dataset" entry. Pipeline built (`src/datasets/irmas_multilabel_dataset.py`,
+   `src/train_multilabel.py`, `src/evaluate_multilabel.py`). Run 1 (`BaselineCNN` from scratch,
+   `configs/phase2_baseline.yaml`) done: **micro-F1 0.57, macro-F1 0.22** on the held-out test
+   split — severe overfitting (train micro-F1 0.95+ vs. val ~0.57, same pattern as Phase 1's
+   Run 1), plus a real split-stratification issue found (`vio` has zero test clips). Full
+   breakdown: `results.md`. Next: the same kind of improvement round Phase 1 went through.
 
 **Phase 1: CLOSED (2026-08-22).** Every milestone above is done, including a working end-to-end
 path from raw audio to prediction. What remains is genuinely optional polish, not unfinished work:

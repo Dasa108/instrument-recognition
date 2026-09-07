@@ -55,6 +55,14 @@ in the resulting split (train per-class positive counts range from 54 (`cla`) to
 ~15x spread — much wider than Phase 1's ~2x spread) — a genuine consideration for loss/threshold
 tuning if Phase 2's baseline underperforms on the rarer classes.
 
+**Outcome (2026-09-08):** the class-imbalance risk flagged above materialized concretely, not just
+theoretically — Phase 2 Run 1's test evaluation found the song-grouped (non-per-class-stratified)
+split left `vio` with **zero** test clips entirely (undefined metric, not a model failure) and
+`cel`/`cla`/`tru` with only 4/4/11 test clips each (unreliable scores either way). Confirmed
+directly against the split, not assumed. Worth fixing — e.g. a minimum-per-class-representation
+constraint in `build_multilabel_split()` — before drawing conclusions about those specific classes
+in future runs. Full breakdown: `results.md`, Phase 2 Run 1.
+
 **Status:** Confirmed (2026-09-01).
 
 ---

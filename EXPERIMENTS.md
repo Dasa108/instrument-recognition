@@ -137,7 +137,7 @@ model classes, different loss/metrics. See `DECISIONS.md`, "Phase 2 dataset" ent
 
 | Run | What it tests | Config | Checkpoint | TensorBoard logs | Status |
 |---|---|---|---|---|---|
-| Phase 2, Run 1 — baseline | `BaselineCNN` from scratch, multi-label BCE loss, mirrors Phase 1's Run 1 | `configs/phase2_baseline.yaml` | `checkpoints/phase2_run1_baseline.pt` | `runs/phase2_run1_baseline/` | In progress |
+| Phase 2, Run 1 — baseline | `BaselineCNN` from scratch, multi-label BCE loss, mirrors Phase 1's Run 1 | `configs/phase2_baseline.yaml` | `checkpoints/phase2_run1_baseline.pt` | `runs/phase2_run1_baseline/` | Done — see `results.md`. micro-F1 0.57, macro-F1 0.22 (test), severe overfitting (same story as Phase 1 Run 1) + a split-stratification gap (`vio` has zero test clips). |
 
 ```bash
 python -m src.train_multilabel --config configs/phase2_baseline.yaml

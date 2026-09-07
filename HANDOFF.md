@@ -146,12 +146,26 @@ per 3s window since IRMAS guarantees labels are constant within an excerpt — 1
 much more than the raw clip count suggests), `src/train_multilabel.py` /
 `src/evaluate_multilabel.py` (BCE loss + micro/macro F1, kept as a separate pipeline from Phase 1
 rather than branching its training loop — see `DECISIONS.md`). Model classes needed no changes —
-`BaselineCNN`/`PANNsClassifier`/`ASTClassifier` already output raw logits. First real run
-(`configs/phase2_baseline.yaml`, `BaselineCNN` from scratch, mirrors Phase 1's Run 1) in progress
-as of this note — full 30-epoch budget, ~9.5 min/epoch, early stopping patience 7. Planned next
-(per the user's explicit sequencing): once this baseline result is in, extend to PANNs/AST for
-Phase 2 too (needs a raw-waveform multi-label dataset variant, not yet built) as the "improve"
-round — same Phase-A-then-Phase-B arc as Phase 1.
+`BaselineCNN`/`PANNsClassifier`/`ASTClassifier` already output raw logits.
+
+**Phase 2, Run 1 — done (2026-09-08).** `BaselineCNN` from scratch (`configs/phase2_baseline.yaml`,
+mirrors Phase 1's Run 1): **micro-F1 0.57, macro-F1 0.22** on the held-out test split (best epoch
+14 of 30, early-stopped). Two distinct findings, not one:
+1. **Same overfitting story as Phase 1's Run 1** — train micro-F1 climbed past 0.95 while val
+   stayed in the 0.32-0.57 range. The obvious next move is the same fix that worked in Phase 1
+   (regularization/SpecAugment/more training time).
+2. **A real split-stratification gap** — checked directly, not assumed: the song-grouped (not
+   per-class-stratified) split left `vio` with **zero** test clips (undefined metric, not a model
+   failure) and `cel`/`cla`/`tru` with only 4/4/11 test clips (unreliable either way). This was
+   explicitly flagged as a risk in `DECISIONS.md`'s "Phase 2 dataset" entry before it was
+   observed, and worth fixing (e.g. minimum-per-class-representation constraint in
+   `build_multilabel_split()`) in the next round. `org` (73 test clips, a real sample) scoring a
+   clean 0.00 is a separate, genuine model weak point — flagged, not yet diagnosed.
+
+Full breakdown: `results.md`. Planned next (per the user's explicit sequencing): a Phase 2
+"improve" round — likely regularization/SpecAugment first (same playbook as Phase 1's Phase A),
+then extending to PANNs/AST for Phase 2 (needs a raw-waveform multi-label dataset variant, not yet
+built) as the pretrained-embedding step, mirroring Phase 1's Phase-A-then-Phase-B arc.
 
 Note (historical): `nvidia-smi` initially couldn't reach the GPU driver from within a Claude Code
 session (likely a transient sandboxing state) — confirmed the card via `lspci` at the time. It

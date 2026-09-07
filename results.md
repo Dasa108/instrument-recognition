@@ -827,3 +827,87 @@ from raw spectrograms), not a fixable regularization/architecture problem — pr
 larger, more general audio corpus (AudioSet) is what actually moved the needle, and it moved it by
 roughly the same amount whether the pretrained backbone was a CNN or a transformer.
 
+---
+
+# Phase 2 — Multi-Label Instrument Detection (IRMAS Testing Set)
+
+Different task, different dataset, different metrics — see `spec.md` §2/§3 and `DECISIONS.md`,
+"Phase 2 dataset" entry. Predicting *all* instruments present in a clip (multi-hot), not just the
+predominant one. Metrics are micro-F1 and macro-F1 (spec.md §6), not accuracy — a clip is scored
+per-instrument (present/absent), not by a single right/wrong answer.
+
+## Phase 2, Run 1 — `phase2_run1_baseline`, `configs/phase2_baseline.yaml`
+
+**Date:** 2026-09-08
+**What it is:** `BaselineCNN` from scratch, `BCEWithLogitsLoss`, deliberately mirrors Phase 1's
+Run 1 (no regularization/augmentation) — establish the from-scratch ceiling before any improvement
+round, same arc as Phase 1.
+**Checkpoint:** `checkpoints/phase2_run1_baseline.pt` (best epoch 14 of 30 — early stopping
+triggered, patience 7).
+
+### Training curve (selected epochs; full log in `runs/phase2_run1_baseline/`)
+
+| Epoch | Train loss | Train micro-F1 | Train macro-F1 | Val loss | Val micro-F1 | Val macro-F1 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.3078 | 0.4818 | 0.2623 | 0.3498 | 0.4084 | 0.1625 |
+| 5 | 0.1519 | 0.7987 | 0.6991 | 0.5140 | 0.5171 | 0.2042 |
+| 10 | 0.0911 | 0.8861 | 0.8401 | 0.5867 | 0.4602 | 0.2520 |
+| **14** | **0.0649** | **0.9213** | **0.8922** | **0.5500** | **0.5739 (best)** | **0.2331** |
+| 18 | 0.0492 | 0.9419 | 0.9195 | 0.5701 | 0.5072 | 0.2499 |
+| 21 (stop) | 0.0414 | 0.9512 | 0.9339 | 1.0659 | 0.4511 | 0.2156 |
+
+**The exact same overfitting story as Phase 1's Run 1.** Train micro-F1 climbs smoothly past 0.95;
+val bounces noisily in the 0.32-0.57 range with no sustained upward trend after epoch ~14, and val
+loss more than doubles by the time early stopping triggers (0.55 → 1.07). First real Phase 2 result
+already points at the same fix that worked for Phase 1: regularization/augmentation, then
+pretrained embeddings if that's not enough — see "Verdict" below.
+
+### Test set (287 clips → 1,640 windows)
+
+**Overall: micro-F1 0.5702, macro-F1 0.2244, hamming loss 0.1349** (fraction of individual
+instrument-present/absent decisions that are wrong — 13.5% of all 11-per-window decisions are
+wrong). Micro-F1 tracks val closely (0.57 both) — no train/test mismatch beyond what the training
+curve already showed.
+
+| Class | Precision | Recall | F1 | Support (test windows) |
+|---|---:|---:|---:|---:|
+| cel | 0.00 | 0.00 | 0.00 | 21 |
+| cla | 0.00 | 0.00 | 0.00 | 20 |
+| flu | 0.29 | 0.03 | 0.06 | 60 |
+| gac | 0.23 | 0.36 | 0.28 | 169 |
+| gel | 0.53 | 0.76 | 0.63 | 530 |
+| org | 0.00 | 0.00 | 0.00 | 401 |
+| pia | 0.76 | 0.70 | 0.73 | 810 |
+| sax | 0.50 | 0.02 | 0.03 | 231 |
+| tru | 0.00 | 0.00 | 0.00 | 69 |
+| vio | 0.00 | 0.00 | 0.00 | **0** |
+| voi | 0.61 | 0.94 | 0.74 | 617 |
+| **micro avg** | **0.59** | **0.55** | **0.57** | 2928 |
+| **macro avg** | **0.27** | **0.25** | **0.22** | 2928 |
+
+**A large macro-F1/micro-F1 gap (0.22 vs. 0.57), and it's not uniformly the model's fault.**
+Checked directly against the actual split (not assumed) — at the *clip* level (not window level),
+the test set has **zero clips containing violin at all**, and only 4 cello, 4 clarinet, and 11
+trumpet clips. `vio`'s 0.00 row isn't a model failure, it's an undefined metric (no positive
+examples exist to score against) — an artifact of `build_multilabel_split()` deliberately *not*
+being per-class-stratified (see `DECISIONS.md`, "Phase 2 dataset" entry, which flagged this exact
+risk before it was observed). `cel`/`cla`/`tru`'s near-zero scores are on such thin test samples
+(4-11 *clips*, not windows) that little should be concluded from them either way. **`org` is
+different** — 73 test clips, a reasonable sample, and the model still scored a clean 0.00 across
+the board. That's a genuine model weak point, not a sample-size artifact.
+
+### Verdict
+
+**Confirms the pipeline works end-to-end and reproduces Phase 1's exact opening lesson: severe
+overfitting on the from-scratch baseline.** Two distinct problems to address, not one:
+1. **Overfitting** (train 0.95 vs. val 0.57 micro-F1) — the same fix that worked in Phase 1
+   (regularization, SpecAugment, more training time) is the obvious first move.
+2. **Split stratification** — a non-per-class-stratified song-grouped split on only 287 test clips
+   left one class (`vio`) with zero test representation and three others (`cel`/`cla`/`tru`) with
+   single-digit clip counts, making their scores unreliable regardless of model quality. Worth
+   fixing (e.g. a minimum-per-class-representation constraint in `build_multilabel_split()`)
+   before drawing firm conclusions about those specific classes in future runs.
+`org`'s clean 0.00 on a reasonably-sized test sample is a real, separate finding worth investigating
+directly (not explained by either problem above) — flagged for the next round rather than
+diagnosed here.
+
