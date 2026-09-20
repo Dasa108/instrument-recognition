@@ -138,7 +138,7 @@ model classes, different loss/metrics. See `DECISIONS.md`, "Phase 2 dataset" ent
 | Run | What it tests | Config | Checkpoint | TensorBoard logs | Status |
 |---|---|---|---|---|---|
 | Phase 2, Run 1 — baseline ⚠️ superseded | `BaselineCNN` from scratch, multi-label BCE loss, mirrors Phase 1's Run 1 | `configs/phase2_baseline.yaml` | `checkpoints/phase2_run1_baseline.pt` | `runs/phase2_run1_baseline/` | **Superseded (2026-09-20)** — evaluated against a broken split (`vio` had 0 test clips). Kept for the debugging story; see `results.md` and `DECISIONS.md`'s split-fix entry. Use Run 1b instead. |
-| Phase 2, Run 1b — baseline, corrected split | Identical recipe to Run 1, re-run after fixing `build_multilabel_split()` | `configs/phase2_baseline_corrected.yaml` | `checkpoints/phase2_run1b_baseline_correctedsplit.pt` | `runs/phase2_run1b_baseline_correctedsplit/` | In progress |
+| Phase 2, Run 1b — baseline, corrected split | Identical recipe to Run 1, re-run after fixing `build_multilabel_split()` | `configs/phase2_baseline_corrected.yaml` | `checkpoints/phase2_run1b_baseline_correctedsplit.pt` | `runs/phase2_run1b_baseline_correctedsplit/` | Done — see `results.md`. micro-F1 0.50, macro-F1 0.25 (test) — every class now has real test support; micro-F1 actually *dropped* vs. Run 1's inflated 0.57 once failing classes counted properly. This is Phase 2's real baseline. |
 
 ```bash
 python -m src.train_multilabel --config configs/phase2_baseline.yaml

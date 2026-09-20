@@ -169,15 +169,23 @@ split sizes barely moved (2,284/297/293 vs. the original 2,294/293/287), zero so
 (same check as always). Full reasoning: `DECISIONS.md`, "Bug fix: `build_multilabel_split()` wasn't
 class-stratified" entry.
 
-**Phase 2, Run 1b — in progress.** Identical recipe to Run 1, re-run on the corrected split
+**Phase 2, Run 1b — done (2026-09-20).** Identical recipe to Run 1, re-run on the corrected split
 (`configs/phase2_baseline_corrected.yaml`) — this is Phase 2's real baseline; Run 1's numbers are
-superseded (kept in `results.md` for the debugging story, marked accordingly). Results pending as
-of this note.
+superseded (kept in `results.md` for the debugging story, marked accordingly). Result: **micro-F1
+0.4992, macro-F1 0.2487** — every class now has real test support (17-720 windows), and the
+honest number is *lower* than Run 1's inflated 0.57 micro-F1, since previously near-empty failing
+classes (`vio`, `cel`, `cla`, `tru`) now carry real weight in the average. Same overfitting shape
+as Run 1 and as Phase 1's own Run 1 (train micro-F1 0.95+, val noisy 0.27-0.60). **5 of 11 classes
+(`cel`/`cla`/`flu`/`tru`/`org`) score at or near 0.00 F1** with genuine test representation behind
+that number now — `org` especially notable, 407 test windows and a clean 0.00 recall, a real and
+repeatable model weak point (also 0.00 in Run 1, on a smaller but still real sample). Full
+breakdown: `results.md`.
 
-Planned next (per the user's explicit sequencing): once Run 1b's numbers are in, a Phase 2
-"improve" round — likely regularization/SpecAugment first (same playbook as Phase 1's Phase A),
-then extending to PANNs/AST for Phase 2 (needs a raw-waveform multi-label dataset variant, not yet
-built) as the pretrained-embedding step, mirroring Phase 1's Phase-A-then-Phase-B arc.
+Next (per the user's explicit sequencing): a Phase 2 "improve" round — likely regularization/
+SpecAugment first (same playbook as Phase 1's Phase A), then extending to PANNs/AST for Phase 2
+(needs a raw-waveform multi-label dataset variant, not yet built) as the pretrained-embedding step,
+mirroring Phase 1's Phase-A-then-Phase-B arc. Given nearly half the classes are currently unusable,
+this round matters more here than it did in Phase 1's equivalent stage.
 
 Note (historical): `nvidia-smi` initially couldn't reach the GPU driver from within a Claude Code
 session (likely a transient sandboxing state) — confirmed the card via `lspci` at the time. It

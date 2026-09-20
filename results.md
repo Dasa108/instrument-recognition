@@ -921,11 +921,83 @@ diagnosed here.
 
 ## Phase 2, Run 1b — `phase2_run1b_baseline_correctedsplit`, `configs/phase2_baseline_corrected.yaml`
 
-*(results pending — training in progress as of 2026-09-20; this section will be filled in once
-the run completes)*
-
+**Date:** 2026-09-20
 **What it is:** identical recipe to Run 1 above (same `BaselineCNN` from scratch, same
 hyperparameters), re-run on the corrected, class-stratified split
 (`build_multilabel_split()` fix — `DECISIONS.md`). This is Phase 2's real baseline going forward;
 Run 1's numbers above should not be used for comparison.
+**Checkpoint:** `checkpoints/phase2_run1b_baseline_correctedsplit.pt` (best epoch 15 of 30 — early
+stopping triggered, patience 7).
+
+### Training curve (selected epochs; full log in `runs/phase2_run1b_baseline_correctedsplit/`)
+
+| Epoch | Train loss | Train micro-F1 | Train macro-F1 | Val loss | Val micro-F1 | Val macro-F1 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.3110 | 0.4659 | 0.2471 | 0.4345 | 0.4405 | 0.1457 |
+| 5 | 0.1487 | 0.8005 | 0.7129 | 0.4416 | 0.4017 | 0.2637 |
+| 10 | 0.0866 | 0.8917 | 0.8549 | 0.8150 | 0.3985 | 0.2167 |
+| **15** | **0.0597** | **0.9256** | **0.9030** | **0.5884** | **0.5995 (best)** | **0.3089** |
+| 19 | 0.0472 | 0.9421 | 0.9275 | 1.8352 | 0.2657 | 0.1315 |
+| 22 (stop) | 0.0392 | 0.9532 | 0.9387 | 0.5356 | 0.5463 | 0.3411 |
+
+Same overfitting shape as Run 1 (and as Phase 1's own Run 1) — train micro-F1 climbs smoothly past
+0.95, val bounces noisily (0.27-0.60) with no sustained trend after the epoch-15 peak, and val loss
+spikes as high as 1.84 (epoch 19) before settling back down. The corrected split changed *which*
+clips are where, not the underlying overfitting behavior — confirms this is a property of the
+recipe (no regularization/augmentation), not an artifact of the original broken split.
+
+### Test set (293 clips → 1,755 windows)
+
+**Overall: micro-F1 0.4992, macro-F1 0.2487, hamming loss 0.1528.**
+
+| Class | Precision | Recall | F1 | Support (test windows) |
+|---|---:|---:|---:|---:|
+| cel | 0.00 | 0.00 | 0.00 | 17 |
+| cla | 0.00 | 0.00 | 0.00 | 48 |
+| flu | 0.00 | 0.00 | 0.00 | 133 |
+| gac | 0.30 | 0.56 | 0.39 | 326 |
+| gel | 0.45 | 0.54 | 0.49 | 553 |
+| org | 0.67 | 0.00 | 0.01 | 407 |
+| pia | 0.74 | 0.57 | 0.64 | 720 |
+| sax | 0.67 | 0.27 | 0.39 | 311 |
+| tru | 0.00 | 0.00 | 0.00 | 93 |
+| vio | 0.08 | 0.02 | 0.03 | 54 |
+| voi | 0.72 | 0.87 | 0.79 | 562 |
+| **micro avg** | **0.55** | **0.46** | **0.50** | 3224 |
+| **macro avg** | **0.33** | **0.26** | **0.25** | 3224 |
+
+**Every class now has real test support** (17-720 windows; compare to Run 1's `vio` at 0 and
+`cel`/`cla` in single digits) — this is the fix working as intended, and it changes the honest
+picture of the model's performance:
+
+- **Micro-F1 actually *dropped*, from Run 1's (misleading) 0.57 to 0.50.** Micro-F1 is a
+  clip-count-weighted average — Run 1's number looked better partly *because* several failing
+  classes (`vio`, `cel`, `cla`, `tru`) had almost no test weight to drag it down. With real
+  representation, those failures now count, and the number falls to a more honest reflection of
+  overall performance.
+- **Macro-F1 rose slightly, from 0.2244 to 0.2487** — macro-F1 (unweighted per-class average)
+  isn't as directly affected by support changes; the small increase is closer to noise than signal
+  given macro-F1 was already being computed over near-empty classes before.
+- **`org` is now clearly diagnosable, not just flagged.** 407 test windows (a large sample) but
+  0.00 recall — the model essentially never predicts organ correctly despite genuine opportunities
+  to. Same pattern held in Run 1 (`org` at 0.00 there too, on a smaller but still real 401-window
+  sample) — this is now confirmed as a real, repeatable model weak point, not a fluke of either
+  split.
+- **`vio` moved from undefined (Run 1) to real-but-poor** (0.08 precision, 0.02 recall, 54
+  windows) — exactly the kind of number the split fix was meant to produce: a low score the model
+  actually earned, not an artifact of zero test data.
+- **`cel`/`cla`/`flu`/`tru` all sit at a clean 0.00** — `flu` newly joins this group (it scored
+  0.06 F1 in Run 1); with more real test data, it's clear the model isn't reliably detecting it
+  either.
+
+### Verdict
+
+**The corrected split doesn't just fix a metric artifact — it reveals the model is meaningfully
+weaker than Run 1's numbers suggested.** 5 of 11 classes (`cel`/`cla`/`flu`/`tru`/`org` — nearly
+half) score at or near 0.00 F1 despite all having real, non-trivial test representation now. This
+sharpens rather than changes the plan already in motion: the overfitting fix (regularization/
+SpecAugment, mirroring Phase 1's Phase A) is still the obvious first move, but expectations should
+be calibrated to this run's honest numbers (0.50/0.25), not Run 1's inflated ones. Given nearly
+half the classes are currently unusable, the improvement round matters more here than it did in
+Phase 1's from-scratch stage.
 

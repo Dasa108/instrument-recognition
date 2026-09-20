@@ -62,8 +62,12 @@ default, not a proven-optimal one — a different tie-breaking rule (e.g. prefer
 *fewest total* classes, to preserve more class-diverse groups for train) might balance the
 remaining classes slightly better, but wasn't necessary to fix the specific bug observed.
 
-**Status:** Fixed and verified (2026-09-20). Phase 2 Run 1 re-run on the corrected split — see
-`results.md`.
+**Status:** Fixed and verified (2026-09-20). Phase 2 Run 1 re-run on the corrected split (Run 1b) —
+worth noting the fix didn't just correct a metric artifact, it revealed the model is genuinely
+weaker than Run 1's numbers suggested: micro-F1 actually *fell* from 0.57 to 0.50 once previously
+near-empty failing classes (`vio`, `cel`, `cla`, `tru`) had real test weight to count against the
+average. 5 of 11 classes now score at or near 0.00 F1 with real support behind that number. See
+`results.md`, Phase 2 Run 1b.
 
 ---
 

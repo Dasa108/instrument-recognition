@@ -17,7 +17,9 @@ Reasoning behind every non-obvious choice made along the way: `DECISIONS.md`. **
 (multi-label) is now in progress** (started 2026-09-01) — dataset (IRMAS's own Testing set, not
 `spec.md`'s originally-scoped OpenMIC-2018/Slakh2100, see `DECISIONS.md`), split, and training/eval
 pipeline built. Run 1 found a real split-stratification bug (fixed 2026-09-20 — see `DECISIONS.md`);
-Run 1's own numbers are superseded, corrected re-run (Run 1b) in progress — `results.md`.
+corrected baseline (Run 1b) is **micro-F1 0.50 / macro-F1 0.25** — lower than Run 1's superseded
+numbers, since every class now has real test weight (see `results.md`). 5 of 11 classes currently
+score near 0.00 F1 — the improvement round is a real priority here, not just a formality.
 
 ## 1. Objective
 
@@ -198,9 +200,12 @@ instrument-recognition/
    `src/train_multilabel.py`, `src/evaluate_multilabel.py`). Run 1 (`BaselineCNN` from scratch,
    `configs/phase2_baseline.yaml`) found severe overfitting (same pattern as Phase 1's Run 1) *and*
    a real bug in the split logic (`vio` had zero test clips — undefined metric, not a model
-   failure). Fixed (2026-09-20, `DECISIONS.md`); Run 1's numbers are superseded, corrected re-run
-   (Run 1b, `configs/phase2_baseline_corrected.yaml`) in progress. Full story: `results.md`. Next:
-   the same kind of improvement round Phase 1 went through, once Run 1b's numbers are in.
+   failure). Fixed (2026-09-20, `DECISIONS.md`); Run 1's numbers are superseded. Corrected baseline
+   (Run 1b, `configs/phase2_baseline_corrected.yaml`): **micro-F1 0.50, macro-F1 0.25** — every
+   class now has real test support, and the honest number is *lower* than Run 1's inflated 0.57,
+   since previously near-empty failing classes now count. 5 of 11 classes score near 0.00 F1. Full
+   story: `results.md`. Next: the same kind of improvement round Phase 1 went through — more
+   important here than it was in Phase 1, given how many classes are currently unusable.
 
 **Phase 1: CLOSED (2026-08-22).** Every milestone above is done, including a working end-to-end
 path from raw audio to prediction. What remains is genuinely optional polish, not unfinished work:
