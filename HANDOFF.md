@@ -148,21 +148,33 @@ much more than the raw clip count suggests), `src/train_multilabel.py` /
 rather than branching its training loop — see `DECISIONS.md`). Model classes needed no changes —
 `BaselineCNN`/`PANNsClassifier`/`ASTClassifier` already output raw logits.
 
-**Phase 2, Run 1 — done (2026-09-08).** `BaselineCNN` from scratch (`configs/phase2_baseline.yaml`,
-mirrors Phase 1's Run 1): **micro-F1 0.57, macro-F1 0.22** on the held-out test split (best epoch
-14 of 30, early-stopped). Two distinct findings, not one:
+**Phase 2, Run 1 — done (2026-09-08), then found to be evaluated on a broken split.**
+`BaselineCNN` from scratch (`configs/phase2_baseline.yaml`, mirrors Phase 1's Run 1): micro-F1
+0.57, macro-F1 0.22 on the held-out test split (best epoch 14 of 30, early-stopped). Two distinct
+findings:
 1. **Same overfitting story as Phase 1's Run 1** — train micro-F1 climbed past 0.95 while val
-   stayed in the 0.32-0.57 range. The obvious next move is the same fix that worked in Phase 1
-   (regularization/SpecAugment/more training time).
-2. **A real split-stratification gap** — checked directly, not assumed: the song-grouped (not
+   stayed in the 0.32-0.57 range.
+2. **A real split-stratification bug** — checked directly, not assumed: the song-grouped (not
    per-class-stratified) split left `vio` with **zero** test clips (undefined metric, not a model
    failure) and `cel`/`cla`/`tru` with only 4/4/11 test clips (unreliable either way). This was
-   explicitly flagged as a risk in `DECISIONS.md`'s "Phase 2 dataset" entry before it was
-   observed, and worth fixing (e.g. minimum-per-class-representation constraint in
-   `build_multilabel_split()`) in the next round. `org` (73 test clips, a real sample) scoring a
-   clean 0.00 is a separate, genuine model weak point — flagged, not yet diagnosed.
+   explicitly flagged as a *risk* in `DECISIONS.md`'s "Phase 2 dataset" entry before it was
+   observed — good that it was anticipated, but it made Run 1's numbers untrustworthy as a
+   baseline to build on.
 
-Full breakdown: `results.md`. Planned next (per the user's explicit sequencing): a Phase 2
+**Fixed (2026-09-20).** `build_multilabel_split()` rewritten as a two-pass algorithm: first
+guarantees every class appears in at least 2 song-groups in val and in test (verified feasible —
+the rarest class, `cla`, appears in 8 groups total), then fills the rest by the original
+proportion-based logic. Verified after the fix: zero classes with zero val/test representation,
+split sizes barely moved (2,284/297/293 vs. the original 2,294/293/287), zero song-group leakage
+(same check as always). Full reasoning: `DECISIONS.md`, "Bug fix: `build_multilabel_split()` wasn't
+class-stratified" entry.
+
+**Phase 2, Run 1b — in progress.** Identical recipe to Run 1, re-run on the corrected split
+(`configs/phase2_baseline_corrected.yaml`) — this is Phase 2's real baseline; Run 1's numbers are
+superseded (kept in `results.md` for the debugging story, marked accordingly). Results pending as
+of this note.
+
+Planned next (per the user's explicit sequencing): once Run 1b's numbers are in, a Phase 2
 "improve" round — likely regularization/SpecAugment first (same playbook as Phase 1's Phase A),
 then extending to PANNs/AST for Phase 2 (needs a raw-waveform multi-label dataset variant, not yet
 built) as the pretrained-embedding step, mirroring Phase 1's Phase-A-then-Phase-B arc.

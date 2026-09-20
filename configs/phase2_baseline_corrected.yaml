@@ -1,0 +1,35 @@
+# Phase 2, Run 1b — identical recipe to configs/phase2_baseline.yaml, re-run after fixing a real
+# bug in build_multilabel_split() (src/datasets/irmas_multilabel_dataset.py): the original split
+# wasn't class-stratified and left violin with ZERO test clips (undefined metric) and
+# cello/clarinet/trumpet with single-digit test clips (unreliable scores). See DECISIONS.md, "Bug
+# fix: build_multilabel_split() wasn't class-stratified" entry.
+#
+# Kept as its own config/run-name rather than overwriting phase2_baseline.yaml's checkpoint —
+# same precedent as Run 4 -> Run 5 in Phase 1 (results.md): the original Run 1 result stays on
+# record, marked superseded, rather than silently disappearing. Every hyperparameter below is
+# identical to phase2_baseline.yaml — only the underlying data split changed.
+
+data:
+  dataset: irmas_testing
+  sample_rate: 16000
+  clip_seconds: 3.0
+  n_mels: 128
+
+model:
+  name: baseline_cnn
+  num_classes: 11
+  dropout: 0.0
+
+train:
+  batch_size: 64
+  epochs: 30
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0
+  mixed_precision: true
+  early_stopping_patience: 7
+
+logging:
+  backend: tensorboard
+  log_dir: runs/
+  run_name: phase2_run1b_baseline_correctedsplit

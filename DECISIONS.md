@@ -12,6 +12,61 @@ New entries go at the top (most recent first).
 
 ---
 
+## Bug fix: `build_multilabel_split()` wasn't class-stratified (violin had zero test clips)
+
+**What happened:** Phase 2 Run 1's test evaluation (`results.md`) found violin (`vio`) had
+**zero** clips in the test split — an undefined metric, not a model failure — and
+cello/clarinet/trumpet had only 4/4/11 test clips each, too few for a reliable score either way.
+Root cause: `build_multilabel_split()` assigned whole song-groups to val/test purely by shuffled
+order until an overall clip-count target was hit, with no regard for which instrument classes
+those groups actually covered. This was an anticipated risk, not a surprise — the original "Phase
+2 dataset" decision entry below explicitly flagged real class imbalance (a ~15x spread between the
+rarest and most common class) as "a genuine consideration... if Phase 2's baseline underperforms
+on the rarer classes," but the split logic itself wasn't hardened against it at the time.
+
+**Fix:** rewrote `build_multilabel_split()` as a two-pass algorithm. Pass 1 — for each class,
+rarest-by-group-count first, greedily assigns enough unassigned song-groups containing that class
+to val and to test to reach a minimum (`min_groups_per_class=2` each), preferring the *smallest*
+available group each time to spend as little of the overall val/test budget as possible on any one
+class's minimum. Pass 2 — fills remaining groups by the original proportion-based greedy logic, so
+overall split sizes still land close to the target 10%/10%.
+
+**Why `min_groups_per_class=2`, not some other number:** checked the real data first, not guessed
+— queried actual per-class *group* counts (how many of the 208 total song-groups contain each
+class at least once). The rarest class (`cla`) appears in only 8 groups; every other class appears
+in more. 2 (val) + 2 (test) = 4 is comfortably feasible for all 11 classes, leaving every class
+with real headroom for train too (`cla`: 8 groups → 4 left for train). A larger minimum (e.g. 3)
+would still have been feasible given the numbers, but 2 was chosen as the minimum that actually
+solves the observed problem (zero representation) without pulling more groups than necessary away
+from train, especially for classes near the 8-group floor.
+
+**Alternatives considered:**
+- **Leave it and just report results with a caveat** — rejected: an undefined metric for an entire
+  class isn't a caveat-able result, it's a broken evaluation. Any future comparison against this
+  baseline would inherit the same hole.
+- **True iterative stratification** (Sechidis et al. 2011, as used in `scikit-multilearn`) — the
+  academically standard algorithm for multi-label stratified splitting, would likely balance
+  proportions more precisely across *all* classes simultaneously rather than just guaranteeing a
+  floor. Not implemented — meaningfully more complex for a problem this two-pass approach already
+  solves completely (verified: zero classes with zero val/test representation after the fix), and
+  matches this project's general preference for the simplest thing that actually fixes the
+  diagnosed problem (see e.g. the AST loop-padding decision, which made the same kind of call).
+
+**Verified after the fix (not assumed):** re-ran the split — 2,284 train / 297 val / 293 test
+clips (barely moved from the original 2,294/293/287), zero song-group overlap across any two
+splits (same leakage check as always), and **zero classes with zero representation in val or
+test** — violin now has 13 val / 8 test clips instead of 0/0.
+
+**Trade-offs / risks accepted:** the "prefer smallest group" heuristic in Pass 1 is a reasonable
+default, not a proven-optimal one — a different tie-breaking rule (e.g. prefer groups touching the
+*fewest total* classes, to preserve more class-diverse groups for train) might balance the
+remaining classes slightly better, but wasn't necessary to fix the specific bug observed.
+
+**Status:** Fixed and verified (2026-09-20). Phase 2 Run 1 re-run on the corrected split — see
+`results.md`.
+
+---
+
 ## Phase 2 dataset: IRMAS Testing set (not OpenMIC-2018/Slakh2100)
 
 **Decision:** Phase 2 (multi-label instrument detection) uses IRMAS's own Testing set — 2,874

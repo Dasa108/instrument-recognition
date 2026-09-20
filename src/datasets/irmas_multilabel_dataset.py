@@ -64,13 +64,31 @@ def build_multilabel_split(
     root: Path = TESTING_ROOT,
     val_frac: float = 0.1,
     test_frac: float = 0.1,
+    min_groups_per_class: int = 2,
     seed: int = 42,
 ) -> dict[str, list[tuple[Path, list[int]]]]:
-    """Song-grouped split, same leakage-safety logic as Phase 1's build_split() — but assigned by
-    overall clip-count proportion rather than per-class (a clip can count toward several classes
-    at once in a multi-label setting, so Phase 1's per-class-balanced assignment doesn't directly
-    generalize; not attempted here, see DECISIONS.md)."""
+    """Song-grouped split, same leakage-safety logic as Phase 1's build_split() — but stratified
+    per-class rather than assigned by overall clip-count proportion alone.
+
+    Fix (2026-09-20) for a real bug found in Phase 2 Run 1: the original version assigned whole
+    song-groups to val/test purely by shuffled order until a clip-count target was hit, with zero
+    regard for which classes those groups covered. On this dataset (only 208 song-groups total,
+    the rarest class `cla` appearing in just 8 of them) that produced a test split with ZERO
+    violin clips at all and single-digit cello/clarinet/trumpet clips — see results.md, Phase 2
+    Run 1, and DECISIONS.md's "Phase 2 dataset" entry.
+
+    Two-pass algorithm: (1) for each class, rarest-by-group-count first, greedily assign enough
+    still-unassigned groups containing that class to val and to test to reach
+    `min_groups_per_class` each (preferring the *smallest* available group, to spend as little of
+    the overall val/test budget as possible on satisfying any one class's minimum) — this is the
+    part that actually prevents the zero-representation bug. (2) fill remaining unassigned groups
+    by the original proportion-based greedy fill, so overall split sizes still land close to
+    val_frac/test_frac. min_groups_per_class=2 was chosen after checking real per-class group
+    counts (all 11 classes appear in >=8 song-groups; 2+2=4 minimum leaves every class with
+    headroom for train too) — not an arbitrary guess.
+    """
     import random
+    from collections import Counter
 
     wav_paths = sorted(root.rglob("*.wav"))
     groups: dict[str, list[tuple[Path, list[int]]]] = {}
@@ -82,24 +100,61 @@ def build_multilabel_split(
         groups.setdefault(_song_title(wav_path), []).append((wav_path, labels))
 
     group_keys = list(groups.keys())
-    random.Random(seed).shuffle(group_keys)
+    rng = random.Random(seed)
+    rng.shuffle(group_keys)  # deterministic given `seed`; also breaks ties in the size-sort below
+
+    # Which classes does each group touch (union of labels across all its clips)?
+    group_classes: dict[str, set[int]] = {}
+    for key in group_keys:
+        touched: set[int] = set()
+        for _, labels in groups[key]:
+            touched.update(i for i, v in enumerate(labels) if v)
+        group_classes[key] = touched
+
+    class_group_count = Counter()
+    for touched in group_classes.values():
+        for c in touched:
+            class_group_count[c] += 1
+    rarest_first = sorted(range(len(IRMAS_CLASSES)), key=lambda i: class_group_count[i])
+
+    assigned: dict[str, str] = {}  # group key -> "val" | "test" | "train"
+
+    def ensure_minimum(split_name: str) -> None:
+        for c in rarest_first:
+            have = sum(1 for k, s in assigned.items() if s == split_name and c in group_classes[k])
+            need = min_groups_per_class - have
+            if need <= 0:
+                continue
+            candidates = [k for k in group_keys if k not in assigned and c in group_classes[k]]
+            candidates.sort(key=lambda k: len(groups[k]))  # smallest groups first — minimize
+                                                             # how much val/test budget this eats
+            for k in candidates[:need]:
+                assigned[k] = split_name
+
+    ensure_minimum("val")
+    ensure_minimum("test")
 
     n_total = len(wav_paths)
     n_val_target = round(n_total * val_frac)
     n_test_target = round(n_total * test_frac)
+    val_count = sum(len(groups[k]) for k, s in assigned.items() if s == "val")
+    test_count = sum(len(groups[k]) for k, s in assigned.items() if s == "test")
+
+    for key in group_keys:
+        if key in assigned:
+            continue
+        if val_count < n_val_target:
+            assigned[key] = "val"
+            val_count += len(groups[key])
+        elif test_count < n_test_target:
+            assigned[key] = "test"
+            test_count += len(groups[key])
+        else:
+            assigned[key] = "train"
 
     splits: dict[str, list[tuple[Path, list[int]]]] = {"train": [], "val": [], "test": []}
-    val_count = test_count = 0
-    for key in group_keys:
-        clips = groups[key]
-        if val_count < n_val_target:
-            splits["val"].extend(clips)
-            val_count += len(clips)
-        elif test_count < n_test_target:
-            splits["test"].extend(clips)
-            test_count += len(clips)
-        else:
-            splits["train"].extend(clips)
+    for key, split_name in assigned.items():
+        splits[split_name].extend(groups[key])
 
     return splits
 

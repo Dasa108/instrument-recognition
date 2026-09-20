@@ -838,6 +838,12 @@ per-instrument (present/absent), not by a single right/wrong answer.
 
 ## Phase 2, Run 1 — `phase2_run1_baseline`, `configs/phase2_baseline.yaml`
 
+**⚠️ SUPERSEDED (2026-09-20) — evaluated against a broken test split, do not use these numbers for
+comparison.** Kept below in full for the debugging story (this run is exactly what surfaced the
+bug), but the fixed re-run is Phase 2, **Run 1b**, immediately after this entry — use that one as
+Phase 2's real baseline. See `DECISIONS.md`, "Bug fix: `build_multilabel_split()` wasn't
+class-stratified" entry.
+
 **Date:** 2026-09-08
 **What it is:** `BaselineCNN` from scratch, `BCEWithLogitsLoss`, deliberately mirrors Phase 1's
 Run 1 (no regularization/augmentation) — establish the from-scratch ceiling before any improvement
@@ -910,4 +916,16 @@ overfitting on the from-scratch baseline.** Two distinct problems to address, no
 `org`'s clean 0.00 on a reasonably-sized test sample is a real, separate finding worth investigating
 directly (not explained by either problem above) — flagged for the next round rather than
 diagnosed here.
+
+---
+
+## Phase 2, Run 1b — `phase2_run1b_baseline_correctedsplit`, `configs/phase2_baseline_corrected.yaml`
+
+*(results pending — training in progress as of 2026-09-20; this section will be filled in once
+the run completes)*
+
+**What it is:** identical recipe to Run 1 above (same `BaselineCNN` from scratch, same
+hyperparameters), re-run on the corrected, class-stratified split
+(`build_multilabel_split()` fix — `DECISIONS.md`). This is Phase 2's real baseline going forward;
+Run 1's numbers above should not be used for comparison.
 
