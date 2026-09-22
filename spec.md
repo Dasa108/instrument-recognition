@@ -20,6 +20,13 @@ pipeline built. Run 1 found a real split-stratification bug (fixed 2026-09-20 �
 corrected baseline (Run 1b) is **micro-F1 0.50 / macro-F1 0.25** — lower than Run 1's superseded
 numbers, since every class now has real test weight (see `results.md`). 5 of 11 classes currently
 score near 0.00 F1 — the improvement round is a real priority here, not just a formality.
+Phase 2's own Phase A — regularization (Run 2, micro-F1 0.53/macro-F1 0.25), SpecAugment (Run 3,
+micro-F1 0.50/macro-F1 0.26), and combined (Run 4, micro-F1 0.50/macro-F1 0.24) — is **done and
+closed (2026-09-22)**. All three give modest-to-negative overall change and **none unlocks the 5
+failing classes**; Run 2 zeroes out two more (`org`/`vio`) that had small non-zero scores in Run
+1b, and Run 4 (combined) is the worst of the four runs, worse than either technique alone. See
+`DECISIONS.md` — this points toward class-imbalance handling or pretrained embeddings (Phase 2's
+own Phase B) as the next real lever, not further overfitting countermeasures.
 
 ## 1. Objective
 
@@ -204,8 +211,14 @@ instrument-recognition/
    (Run 1b, `configs/phase2_baseline_corrected.yaml`): **micro-F1 0.50, macro-F1 0.25** — every
    class now has real test support, and the honest number is *lower* than Run 1's inflated 0.57,
    since previously near-empty failing classes now count. 5 of 11 classes score near 0.00 F1. Full
-   story: `results.md`. Next: the same kind of improvement round Phase 1 went through — more
-   important here than it was in Phase 1, given how many classes are currently unusable.
+   story: `results.md`. Phase A (regularization/SpecAugment, mirroring Phase 1) **done and closed
+   2026-09-22**: Run 2 (`configs/phase2_reg.yaml`) micro-F1 0.53/macro-F1 0.25, Run 3
+   (`configs/phase2_specaug.yaml`) micro-F1 0.50/macro-F1 0.26, Run 4 combined
+   (`configs/phase2_combined.yaml`) micro-F1 0.50/macro-F1 0.24 — **none unlocks the 5 failing
+   classes**, Run 2 zeroes out two more (`org`/`vio`) that had partial signal in Run 1b, and Run 4
+   is the worst of the four (no Phase-1-style "more epochs" follow-up — this isn't a training-
+   budget problem, see `DECISIONS.md`). Points toward class-imbalance handling or pretrained
+   embeddings (Phase 2's own Phase B) as the next real lever.
 
 **Phase 1: CLOSED (2026-08-22).** Every milestone above is done, including a working end-to-end
 path from raw audio to prediction. What remains is genuinely optional polish, not unfinished work:

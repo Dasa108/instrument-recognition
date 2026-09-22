@@ -12,6 +12,51 @@ New entries go at the top (most recent first).
 
 ---
 
+## Phase 2's Phase A (regularization/SpecAugment) redistributes performance, doesn't unlock failing classes
+
+**What happened:** ran Phase 2's own version of Phase 1's improvement round — Run 2
+(regularization: dropout 0.2 + weight decay 1e-4, isolated), Run 3 (SpecAugment, isolated), and Run
+4 (both combined) — against Run 1b's real baseline (test micro-F1 0.4992, macro-F1 0.2487, 5 of 11
+classes at ~0.00 F1). In Phase 1, the same techniques closed the overfitting gap and produced
+clear, broad accuracy gains, and combining them (after a training-budget fix) gave the best result
+of the phase. Here the outcome is different: Run 2 reaches micro-F1 0.5257/macro-F1 0.2541, Run 3
+reaches micro-F1 0.5040/macro-F1 0.2583 — both real but modest overall gains, and neither moves
+`cel`/`cla`/`flu`/`tru` off their clean 0.00 F1. Worse, Run 2's tighter decision boundary actively
+*zeroes out* `org` and `vio`, which had small non-zero scores in Run 1b (`org` 0.67 precision/0.01
+F1, `vio` 0.08 precision/0.03 F1) — regularization traded away partial signal on borderline classes
+to sharpen the model's confidence on classes it could already discriminate (`pia`, `sax`). **Run 4
+(combined) underperforms both individual runs** — micro-F1 0.5011/macro-F1 0.2449, the worst of
+all four — with `gac` recall collapsing to 0.10 (worse than either Run 2's 0.14 or Run 3's 0.50
+alone), showing the two techniques' costs on marginal classes compound rather than cancel.
+
+**Why this differs from Phase 1:** Phase 1's Run 1 baseline overfit on *every* class roughly
+equally — closing the train/val gap lifted the whole board. Phase 2's baseline instead has a
+bimodal split: 6 classes with real (if imperfect) signal and 5 classes with effectively none. Both
+regularization and augmentation are countermeasures against *overfitting* (a model that memorizes
+training examples instead of learning generalizable features) — they can only reallocate a model's
+existing capacity/confidence among classes it's already extracting some signal from. They have no
+mechanism to give the model a new signal for a class it isn't learning to discriminate at all,
+which is what the ~15x class-count imbalance (`DECISIONS.md`, "Phase 2 dataset" entry) plus these
+5 classes' near-total absence from the loss's effective gradient (BCE loss dominated by the 6
+learnable classes) is actually doing.
+
+**Why not a Phase-1-style "Run 5, more epochs" follow-up to Run 4:** Phase 1's Run 4 underperformed
+because it was genuinely still improving at epoch 30 (verified via TensorBoard curves at the time)
+— an epoch-budget artifact, fixed by Run 5's extended schedule. Run 4 here shows no such signal:
+val loss/F1 were already flat/bounced-out by epoch 26-30, not climbing, so there's no reason to
+expect more epochs would help. More training budget has no mechanism to fix a class the model
+isn't extracting signal from at all — the diagnosis is capacity/signal, not convergence time.
+
+**Implication for next steps:** the fix for the 5 failing classes is more likely to be something
+that directly targets class imbalance (per-class loss weighting, focal loss) or gives the model
+fundamentally better features to work with (pretrained embeddings — Phase 2's own Phase B, PANNs/
+AST on raw waveform) rather than further overfitting countermeasures on the current from-scratch
+CNN.
+
+**Status:** Confirmed (2026-09-22). See `results.md` Runs 2-4 for full metrics.
+
+---
+
 ## Bug fix: `build_multilabel_split()` wasn't class-stratified (violin had zero test clips)
 
 **What happened:** Phase 2 Run 1's test evaluation (`results.md`) found violin (`vio`) had

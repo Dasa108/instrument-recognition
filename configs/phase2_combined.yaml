@@ -1,0 +1,40 @@
+# Phase 2, Run 4 — regularization + SpecAugment combined. Mirrors Phase 1's Run 4/5 combined
+# recipe. Built after Run 2 (reg, test micro-F1 0.5257/macro-F1 0.2541) and Run 3 (specaug, test
+# micro-F1 0.5040/macro-F1 0.2583) both individually done: neither fixes the 5 classes stuck at
+# 0.00 test F1 (cel/cla/flu/tru, plus org/vio newly zeroed by regularization) — this run checks
+# whether combining the two closes any more of that gap, matching Phase 1's ablation discipline
+# (isolate, then combine) before concluding the gap needs a different fix (class imbalance
+# handling / pretrained embeddings), not more epoch budget or augmentation tuning.
+# See notes/improv_cnn.md, DECISIONS.md.
+
+data:
+  dataset: irmas_testing
+  sample_rate: 16000
+  clip_seconds: 3.0
+  n_mels: 128
+
+model:
+  name: baseline_cnn
+  num_classes: 11
+  dropout: 0.2
+
+train:
+  batch_size: 64
+  epochs: 30
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0001
+  mixed_precision: true
+  early_stopping_patience: 7
+
+augmentation:
+  specaugment: true
+  freq_mask_param: 16
+  time_mask_param: 30
+  num_freq_masks: 1
+  num_time_masks: 1
+
+logging:
+  backend: tensorboard
+  log_dir: runs/
+  run_name: phase2_run4_combined

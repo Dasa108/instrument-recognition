@@ -1001,3 +1001,196 @@ be calibrated to this run's honest numbers (0.50/0.25), not Run 1's inflated one
 half the classes are currently unusable, the improvement round matters more here than it did in
 Phase 1's from-scratch stage.
 
+---
+
+## Phase 2, Run 2 — `phase2_run2_regularization`, `configs/phase2_reg.yaml`
+
+**Date:** 2026-09-22
+**What it is:** Run 1b's recipe + conv-block dropout (0.2) + weight decay (0.0001) — isolating
+regularization only, no SpecAugment. Mirrors Phase 1's Run 2 exactly in hyperparameters.
+**Checkpoint:** `checkpoints/phase2_run2_regularization.pt` (best epoch 24 of 30, ran to completion
+— early stopping never triggered).
+
+### Training curve (selected epochs; full log in `runs/phase2_run2_regularization/`)
+
+| Epoch | Train loss | Train micro-F1 | Train macro-F1 | Val loss | Val micro-F1 | Val macro-F1 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.3688 | 0.2367 | 0.0996 | 0.3608 | 0.3684 | 0.1432 |
+| 5 | 0.2882 | 0.5162 | 0.2704 | 0.3777 | 0.4283 | 0.1819 |
+| 10 | 0.2561 | 0.5910 | 0.3606 | 0.3781 | 0.4786 | 0.2330 |
+| 15 | 0.2267 | 0.6526 | 0.4518 | 0.3725 | 0.5306 | 0.2288 |
+| 20 | 0.2031 | 0.7011 | 0.5368 | 0.3663 | 0.5331 | 0.2608 |
+| **24** | **0.1908** | **0.7234** | **0.5932** | **0.3583** | **0.5644 (best)** | **0.2953** |
+| 30 (end) | 0.1771 | 0.7482 | 0.6424 | 0.3813 | 0.5424 | 0.3124 |
+
+Same effect regularization had in Phase 1: the train/val gap closes substantially (train micro-F1
+ends at 0.75, not Run 1b's 0.95+) and val loss stays flat/bounded (0.35-0.40 throughout, never
+spikes past 1.0 the way Run 1b's did) rather than climbing. No early stopping triggered — val
+micro-F1 was still slowly climbing at epoch 30, unlike Phase 1's Run 2 which plateaued earlier.
+
+### Test set (293 clips → 1,755 windows)
+
+**Overall: micro-F1 0.5257, macro-F1 0.2541, hamming loss 0.1369.**
+
+| Class | Precision | Recall | F1 | Support (test windows) |
+|---|---:|---:|---:|---:|
+| cel | 0.00 | 0.00 | 0.00 | 17 |
+| cla | 0.00 | 0.00 | 0.00 | 48 |
+| flu | 0.00 | 0.00 | 0.00 | 133 |
+| gac | 0.39 | 0.14 | 0.21 | 326 |
+| gel | 0.49 | 0.53 | 0.51 | 553 |
+| org | 0.00 | 0.00 | 0.00 | 407 |
+| pia | 0.68 | 0.69 | 0.69 | 720 |
+| sax | 0.83 | 0.45 | 0.59 | 311 |
+| tru | 0.03 | 0.01 | 0.02 | 93 |
+| vio | 0.00 | 0.00 | 0.00 | 54 |
+| voi | 0.72 | 0.87 | 0.79 | 562 |
+| **micro avg** | **0.62** | **0.45** | **0.53** | 3224 |
+| **macro avg** | **0.29** | **0.24** | **0.25** | 3224 |
+
+### Verdict
+
+**Regularization helps overall (micro-F1 0.4992 → 0.5257) but doesn't touch the core problem —
+it even makes two of the failing classes worse.** `pia` and `sax` both improve meaningfully
+(precision rises sharply on both, e.g. `sax` 0.67→0.83), and `gel`/`voi` hold steady — the classes
+that already had a working signal got a cleaner one. But `org` (407 test windows, was 0.67
+precision/0.00 recall in Run 1b) collapses to 0.00/0.00 entirely, and `vio` (was a real-but-poor
+0.08/0.02) also drops to a clean 0.00. `gac` recall falls hard (0.56→0.14) even as its precision
+rises, suggesting the tighter decision boundary from dropout/weight-decay is trading recall for
+precision — helpful where the class was already learnable, actively harmful where it wasn't.
+Macro-F1 barely moves (0.2487→0.2541) because the classes that improved were already non-zero and
+the classes that regressed were already near-zero — regularization is optimizing the model's
+*confidence calibration* on classes it can already discriminate, not giving it new discriminative
+power on the classes it can't. `cel`/`cla`/`flu`/`tru` remain untouched at 0.00, same as Run 1b.
+
+---
+
+## Phase 2, Run 3 — `phase2_run3_specaugment`, `configs/phase2_specaug.yaml`
+
+**Date:** 2026-09-22
+**What it is:** Run 1b's recipe + SpecAugment (freq mask 16, time mask 30, 1 of each) — isolating
+augmentation only, no dropout/weight decay. Mirrors Phase 1's Run 3 exactly in mask hyperparameters
+(same input shape: 128 mel bins x 301 frames).
+**Checkpoint:** `checkpoints/phase2_run3_specaugment.pt` (best epoch 16 of 30 — early stopping
+triggered at epoch 23, patience 7).
+
+### Training curve (selected epochs; full log in `runs/phase2_run3_specaugment/`)
+
+| Epoch | Train loss | Train micro-F1 | Train macro-F1 | Val loss | Val micro-F1 | Val macro-F1 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.3201 | 0.4326 | 0.2256 | 0.5546 | 0.3028 | 0.1410 |
+| 5 | 0.1779 | 0.7537 | 0.6298 | 0.4269 | 0.4595 | 0.2831 |
+| 10 | 0.1238 | 0.8352 | 0.7826 | 0.5925 | 0.5134 | 0.2603 |
+| **16** | **0.0899** | **0.8832** | **0.8454** | **0.5568** | **0.5819 (best)** | **0.2859** |
+| 20 | 0.0762 | 0.9041 | 0.8755 | 0.8307 | 0.4764 | 0.2461 |
+| 23 (stop) | 0.0691 | 0.9143 | 0.8879 | 0.7379 | 0.4729 | 0.2802 |
+
+SpecAugment alone (no dropout/weight decay) does **not** close the train/val gap the way it did
+partially in Phase 1 — train micro-F1 still reaches 0.91 (barely below Run 1b's 0.95+), and val
+metrics bounce noisily between 0.41 and 0.58 with no clean trend, while val loss climbs erratically
+as high as 0.83. This matches Phase 1's finding that SpecAugment alone is the most volatile of the
+individual techniques, but the effect is sharper here — without any weight-space regularization,
+augmenting the input doesn't stop the small CNN from memorizing the training set through other
+means.
+
+### Test set (293 clips → 1,755 windows)
+
+**Overall: micro-F1 0.5040, macro-F1 0.2583, hamming loss 0.1479.**
+
+| Class | Precision | Recall | F1 | Support (test windows) |
+|---|---:|---:|---:|---:|
+| cel | 0.00 | 0.00 | 0.00 | 17 |
+| cla | 0.00 | 0.00 | 0.00 | 48 |
+| flu | 0.00 | 0.00 | 0.00 | 133 |
+| gac | 0.43 | 0.50 | 0.46 | 326 |
+| gel | 0.43 | 0.77 | 0.55 | 553 |
+| org | 0.00 | 0.00 | 0.00 | 407 |
+| pia | 0.90 | 0.38 | 0.54 | 720 |
+| sax | 0.76 | 0.39 | 0.51 | 311 |
+| tru | 0.00 | 0.00 | 0.00 | 93 |
+| vio | 0.00 | 0.00 | 0.00 | 54 |
+| voi | 0.73 | 0.83 | 0.78 | 562 |
+| **micro avg** | **0.57** | **0.45** | **0.50** | 3224 |
+| **macro avg** | **0.30** | **0.26** | **0.26** | 3224 |
+
+### Verdict
+
+**Best macro-F1 of the three runs so far (0.2583), but only a marginal micro-F1 gain over Run 1b
+(0.4992→0.5040) and the same 5-class near-total failure persists** — `cel`/`cla`/`flu`/`tru`/`org`
+all sit at 0.00, and `vio` joins them here too (Run 1b had it at a real-but-poor 0.03). `gac`
+recall improves a lot (0.56→0.50 is roughly flat, but precision rises 0.30→0.43) and `gel` recall
+jumps sharply (0.54→0.77) at some precision cost — SpecAugment is pushing the model toward
+different classes' decision boundaries than regularization did, but with the same ceiling: it
+cannot rescue classes the model isn't learning any real signal for. Confirms the same conclusion as
+Run 2 from a different angle — this generation of overfitting countermeasures redistributes
+performance among classes the model can already partially discriminate; it doesn't unlock the ones
+it can't.
+
+---
+
+## Phase 2, Run 4 — `phase2_run4_combined`, `configs/phase2_combined.yaml`
+
+**Date:** 2026-09-22
+**What it is:** Run 2 + Run 3 together (dropout 0.2, weight decay 0.0001, SpecAugment all at
+once). Mirrors Phase 1's Run 4. Run for completeness/ablation-discipline parity with Phase 1, with
+the expectation already tempered by Run 2/3's individual results (see their verdicts above and the
+dedicated `DECISIONS.md` entry) that this is unlikely to fix the 5 failing classes.
+**Checkpoint:** `checkpoints/phase2_run4_combined.pt` (best epoch 26 of 30, ran to completion — no
+early stopping).
+
+### Training curve (selected epochs; full log in `runs/phase2_run4_combined/`)
+
+| Epoch | Train loss | Train micro-F1 | Train macro-F1 | Val loss | Val micro-F1 | Val macro-F1 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 0.3658 | 0.2475 | 0.1116 | 0.3654 | 0.3936 | 0.1508 |
+| 10 | 0.2784 | 0.5394 | 0.3013 | 0.3873 | 0.4454 | 0.2038 |
+| 20 | 0.2357 | 0.6337 | 0.4312 | 0.3503 | 0.5227 | 0.3089 |
+| **26** | **0.2168** | **0.6740** | **0.5169** | **0.3589** | **0.5377 (best)** | **0.2838** |
+| 30 (end) | 0.2060 | 0.6947 | 0.5593 | 0.3665 | 0.5310 | 0.2984 |
+
+Stable, no early stopping, smaller train/val gap than Run 3 alone (train ends at 0.69 vs Run 3's
+0.91) — the dropout/weight-decay component is doing the same job it did in Run 2. Slower climb
+than Run 2 alone, consistent with Phase 1's Run 4 (two regularization pressures at once slow
+convergence within the same epoch budget).
+
+### Test set (293 clips → 1,755 windows)
+
+**Overall: micro-F1 0.5011, macro-F1 0.2449, hamming loss 0.1400.**
+
+| Class | Precision | Recall | F1 | Support (test windows) |
+|---|---:|---:|---:|---:|
+| cel | 0.00 | 0.00 | 0.00 | 17 |
+| cla | 0.00 | 0.00 | 0.00 | 48 |
+| flu | 1.00 | 0.02 | 0.03 | 133 |
+| gac | 0.31 | 0.10 | 0.15 | 326 |
+| gel | 0.46 | 0.44 | 0.45 | 553 |
+| org | 0.00 | 0.00 | 0.00 | 407 |
+| pia | 0.70 | 0.64 | 0.67 | 720 |
+| sax | 0.84 | 0.48 | 0.61 | 311 |
+| tru | 0.00 | 0.00 | 0.00 | 93 |
+| vio | 0.03 | 0.02 | 0.02 | 54 |
+| voi | 0.70 | 0.83 | 0.76 | 562 |
+| **micro avg** | **0.62** | **0.42** | **0.50** | 3224 |
+| **macro avg** | **0.37** | **0.23** | **0.24** | 3224 |
+
+### Verdict
+
+**Combining underperformed both individual runs — worst macro-F1 of the four Phase 2 runs so far
+(0.2449, vs. baseline's 0.2487, Run 2's 0.2541, Run 3's 0.2583).** This mirrors Phase 1's Run 4
+finding on the surface (combined recipe underperforms its individual halves), but the cause looks
+different: Phase 1's Run 4 was diagnosed as simply under-trained (fixed by more epochs in Run 5,
+`results.md` Phase 1 section). Here, `gac` recall collapses hard (0.56 in Run 1b → 0.10 in Run 4)
+— worse than either Run 2 (0.14) or Run 3 (0.50) alone — suggesting the two techniques'
+suppressive effects on marginal classes *compound* rather than cancel: Run 2's tighter decision
+boundary and Run 3's noisier training signal are each individually costing some classes precision/
+recall, and combined they cost more, not less. `flu` gets an unusual precision-1.00/recall-0.02
+result — the model becomes so conservative on this class it only fires when certain, predicting it
+almost never. The already-failing classes (`cel`/`cla`/`org`/`tru`) remain untouched at 0.00 as in
+every other run. **Not pursuing a Phase 1-style "Run 5, more epochs" follow-up** — Phase 1's
+under-training diagnosis doesn't transfer here (Run 4's val loss/F1 were already stable, not still
+climbing, unlike Phase 1's Run 4), and more training budget has no mechanism to fix a class the
+model isn't extracting signal from at all. This closes out Phase 2's Phase A: regularization and
+SpecAugment, alone or combined, redistribute performance among the ~6 classes with existing signal
+and cannot rescue the 5 classes without it. See `DECISIONS.md` for the full reasoning and the
+implication for Phase 2's next step (class-imbalance handling or pretrained embeddings).
+

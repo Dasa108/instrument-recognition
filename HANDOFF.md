@@ -181,11 +181,29 @@ that number now — `org` especially notable, 407 test windows and a clean 0.00 
 repeatable model weak point (also 0.00 in Run 1, on a smaller but still real sample). Full
 breakdown: `results.md`.
 
-Next (per the user's explicit sequencing): a Phase 2 "improve" round — likely regularization/
-SpecAugment first (same playbook as Phase 1's Phase A), then extending to PANNs/AST for Phase 2
-(needs a raw-waveform multi-label dataset variant, not yet built) as the pretrained-embedding step,
-mirroring Phase 1's Phase-A-then-Phase-B arc. Given nearly half the classes are currently unusable,
-this round matters more here than it did in Phase 1's equivalent stage.
+**Phase 2, Runs 2-4 (Phase A) — done and closed (2026-09-22).** Regularization (Run 2,
+`configs/phase2_reg.yaml`: dropout 0.2 + weight decay 1e-4), SpecAugment (Run 3,
+`configs/phase2_specaug.yaml`), isolated, then combined (Run 4, `configs/phase2_combined.yaml`) —
+same playbook as Phase 1's Phase A. Results: Run 2 micro-F1 0.5257/macro-F1 0.2541, Run 3 micro-F1
+0.5040/macro-F1 0.2583 (early-stopped epoch 23, best epoch 16), Run 4 micro-F1 0.5011/macro-F1
+0.2449 (worst of the four). **Unlike Phase 1, none of the three unlocks the failing classes** —
+`cel`/`cla`/`org`/`tru` stay at a clean 0.00 F1 in every run, and Run 2's tighter decision boundary
+actively zeroes out `org`/`vio` (already counted), which had small non-zero scores in Run 1b. The
+techniques instead redistribute performance among the ~6 classes the model already partially
+discriminates (`pia`, `sax`, `gac`, `gel`, `voi`) — and combining them (Run 4) makes it worse, not
+better, unlike Phase 1 where combining (once given enough epochs, Run 5) was the best result.
+`gac` recall specifically collapses to 0.10 in Run 4 vs. 0.56 in the baseline — the two techniques'
+costs on marginal classes compound. No Phase-1-style "Run 5, more epochs" follow-up planned: Run
+4's val curves were already flat by epoch 26-30, not still climbing, so this isn't a training-
+budget problem the way Phase 1's was. See `DECISIONS.md`'s dedicated entry for the full reasoning
+(Phase 1's overfitting was uniform across classes; Phase 2's baseline has a bimodal split between
+learnable and unlearned classes, which overfitting countermeasures alone can't fix). Full
+breakdown: `results.md`.
+
+Next: given Phase A is closed without unlocking the failing classes, the more promising lever is
+either targeted class-imbalance handling (focal loss / per-class weighting) or extending to PANNs/
+AST for Phase 2 (needs a raw-waveform multi-label dataset variant, not yet built) as the
+pretrained-embedding step, mirroring Phase 1's Phase-A-then-Phase-B arc.
 
 Note (historical): `nvidia-smi` initially couldn't reach the GPU driver from within a Claude Code
 session (likely a transient sandboxing state) — confirmed the card via `lspci` at the time. It
