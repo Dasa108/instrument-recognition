@@ -1,0 +1,36 @@
+# Phase 2, Run 3 — SpecAugment only, isolated. Mirrors Phase 1's Run 3 (configs/specaug.yaml)
+# exactly in mask-size hyperparameters — same log-mel input shape (128 mel bins x 301 frames), so
+# no reason to guess different values. Built on Run 1b (configs/phase2_baseline_corrected.yaml).
+# See notes/improv_cnn.md section 2.
+
+data:
+  dataset: irmas_testing
+  sample_rate: 16000
+  clip_seconds: 3.0
+  n_mels: 128
+
+model:
+  name: baseline_cnn
+  num_classes: 11
+  dropout: 0.0           # isolating SpecAugment only — regularization is Run 2
+
+train:
+  batch_size: 64
+  epochs: 30
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0
+  mixed_precision: true
+  early_stopping_patience: 7
+
+augmentation:
+  specaugment: true
+  freq_mask_param: 16    # max width of a masked frequency band, out of 128 mel bins
+  time_mask_param: 30    # max width of a masked time band, out of 301 frames
+  num_freq_masks: 1
+  num_time_masks: 1
+
+logging:
+  backend: tensorboard
+  log_dir: runs/
+  run_name: phase2_run3_specaugment

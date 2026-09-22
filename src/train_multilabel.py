@@ -29,18 +29,29 @@ from torch.utils.tensorboard import SummaryWriter
 from src.datasets.irmas_dataset import IRMAS_CLASSES
 from src.datasets.irmas_multilabel_dataset import IRMASMultilabelDataset
 from src.models.registry import build_model
+from src.preprocessing.audio_to_logmel import spec_augment
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 THRESHOLD = 0.5  # sigmoid decision threshold for "instrument present"
 
 
-def run_epoch(model, loader, criterion, optimizer, scaler, device, train: bool, use_amp: bool):
+def run_epoch(model, loader, criterion, optimizer, scaler, device, train: bool, use_amp: bool,
+              aug_cfg=None):
     model.train(train)
     total_loss, total = 0.0, 0
     all_preds, all_labels = [], []
 
     for x, y in loader:
         x, y = x.to(device), y.to(device)
+
+        if train and aug_cfg and aug_cfg.get("specaugment"):
+            x = spec_augment(
+                x,
+                freq_mask_param=aug_cfg.get("freq_mask_param", 16),
+                time_mask_param=aug_cfg.get("time_mask_param", 30),
+                num_freq_masks=aug_cfg.get("num_freq_masks", 1),
+                num_time_masks=aug_cfg.get("num_time_masks", 1),
+            )
 
         with torch.set_grad_enabled(train):
             with torch.autocast(device_type=device.type, enabled=use_amp):
@@ -76,6 +87,16 @@ def main(config_path: str = "configs/phase2_panns.yaml") -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}  model: {cfg['model']['name']}  task: multilabel (Phase 2)")
+
+    aug_cfg = cfg.get("augmentation", {})
+    if aug_cfg.get("specaugment") and cfg["model"]["name"] != "baseline_cnn":
+        # Same guard as train.py: spec_augment() expects (B,1,n_mels,n_frames) log-mel input —
+        # a future PANNs/AST multi-label config would use raw waveform instead, so this would
+        # silently no-op or crash rather than do anything meaningful. Fail loudly.
+        raise ValueError(
+            f"augmentation.specaugment is only valid for model.name: baseline_cnn "
+            f"(log-mel input), got model.name: {cfg['model']['name']!r}"
+        )
 
     train_ds = IRMASMultilabelDataset(split="train")
     val_ds = IRMASMultilabelDataset(split="val")
@@ -114,7 +135,8 @@ def main(config_path: str = "configs/phase2_panns.yaml") -> None:
     epochs = cfg["train"]["epochs"]
     for epoch in range(1, epochs + 1):
         train_loss, train_micro_f1, train_macro_f1, _, _ = run_epoch(
-            model, train_loader, criterion, optimizer, scaler, device, train=True, use_amp=use_amp
+            model, train_loader, criterion, optimizer, scaler, device, train=True,
+            use_amp=use_amp, aug_cfg=aug_cfg
         )
         val_loss, val_micro_f1, val_macro_f1, _, _ = run_epoch(
             model, val_loader, criterion, optimizer, scaler, device, train=False, use_amp=use_amp
